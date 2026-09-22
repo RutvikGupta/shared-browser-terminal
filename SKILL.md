@@ -200,7 +200,16 @@ the shared terminal. Missing ble.sh leaves the shell usable with a notice.
 
 ## Upload documents from the client laptop
 
-The ttyd client enables `enableTrzsz=true`; Homebrew `trzsz-go` supplies `trz`.
+The default browser page has a floating **↑ Upload** button in the upper-right.
+Click it, then **Choose files** in the dialog. This starts a separate authenticated
+receiver and saves into `~/Downloads/terminal-uploads`, without typing into or
+restarting the shared agent. The helper generates the custom page from the locally
+installed ttyd bundle and `assets/upload-controls.html`; keep both scripts and
+assets when installing/updating the skill. Refresh the page after deployment.
+Chrome/Edge supports the native picker. Wait for transfer completion before closing.
+
+For a command-line alternative, the ttyd client enables `enableTrzsz=true`;
+Homebrew `trzsz-go` supplies `trz`.
 After refreshing the browser, run `trz` at an idle Bash prompt. A browser file
 picker selects files from the client laptop and transfers them into the host's
 current directory. PDFs, Word documents, images, and other files are supported.

@@ -38,6 +38,7 @@ Default runtime directory: `/private/tmp/codex-browser-remote/`.
 | `url.txt` | Current Cloudflare URL |
 | `settings.json` | Session, port, working directory, and font settings |
 | `theme.json` | Generated terminal palette |
+| `index.html` | Installed ttyd page with the floating upload controls |
 
 The username defaults to the hosting Mac's username. The password is generated
 randomly once and reused. These files are outside the source tree and must never
@@ -156,6 +157,20 @@ inside a Codex/Claude chat composer.
 
 ## Upload documents
 
+Click **↑ Upload** at the top-right, then **Choose files** in the dialog. This
+uses a separate authenticated terminal connection and saves into the fixed host
+directory `~/Downloads/terminal-uploads`. It leaves the current agent and shell
+untouched. Wait for completion before closing; closing mid-transfer cancels the
+receiver and can leave a partial file. Reopen the dialog to upload more files.
+Chrome and Edge support the native file picker used by this flow.
+
+The helper adds a small control to the page embedded in your installed ttyd,
+using a generated `index.html` in the private runtime directory. No third-party
+JavaScript bundle is committed or fetched from a CDN. URL arguments select only
+normal attachment or the upload receiver; they cannot specify a shell command or
+an arbitrary upload destination. Both connections use the same authentication.
+
+The command-line alternative below lets you choose another destination.
 The host needs `brew install trzsz-go`. The helper enables ttyd's `enableTrzsz`
 client option, which transfers files over the existing terminal WebSocket.
 Refresh a page opened before the option was enabled. Run `trz` at the browser's

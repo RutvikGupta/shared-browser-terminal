@@ -14,7 +14,7 @@ Login, an open inbound port, a domain, or a Cloudflare account.
 - Password-protected browser access with a random password and HTTPS public URL.
 - Warp Phenomenon terminal colors, 14px text, and no tmux status bar.
 - Mouse/trackpad scrollback: 50,000 lines in the first and subsequent windows.
-- Upload documents from the client laptop into the host through the same connection.
+- Floating Upload button for documents, with a separate connection that leaves agents running.
 - Local Bash history suggestions: **Tab** or **Right Arrow** accepts ghost text.
 - Normal Tab completion when no suggestion is visible; **Ctrl+R** searches history.
 - Optional personal Codex skill: invoke **`$shared-browser-terminal`**.
@@ -112,7 +112,16 @@ python3 scripts/browser_terminal.py stop
 
 ## Upload documents
 
-Refresh the terminal page after upgrading, then run this at the **shell prompt**:
+Refresh the terminal page after upgrading. Click **↑ Upload** in the upper-right,
+then **Choose files** in the dialog. Select documents from your laptop; they are
+saved on the hosting Mac in `~/Downloads/terminal-uploads`. Keep the dialog open
+until the transfer reports completion, then give your agent the resulting path.
+
+The button opens a separate authenticated receiver, so you can upload while an
+agent is running. It does not type into the shared terminal. Chrome or Edge is
+recommended for the native file picker.
+
+For uploads into the shell's current directory instead, run at the **shell prompt**:
 
 ```bash
 trz

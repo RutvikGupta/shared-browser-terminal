@@ -13,6 +13,7 @@ import shutil
 import signal
 import socket
 import subprocess
+import sys
 import time
 import urllib.error
 import urllib.request
@@ -265,15 +266,18 @@ def ttyd_options(config):
 
 
 def restart_ttyd(state, config):
+    from terminal_page import write_terminal_page
+    page = write_terminal_page(state, shutil.which('ttyd'))
     stop_process(state, config, 'ttyd')
     with socket.socket() as sock:
         if sock.connect_ex(('127.0.0.1', config['port'])) == 0:
             raise RuntimeError('Terminal port is in use by an untracked process.')
-    args = [shutil.which('ttyd'), '-W', '-O', '-i', '127.0.0.1',
+    args = [shutil.which('ttyd'), '-W', '-O', '-a', '-I', str(page), '-i', '127.0.0.1',
             '-p', str(config['port']), '-c', credentials(state)]
     for option in ttyd_options(config):
         args.extend(['-t', option])
-    args.extend([shutil.which('tmux'), 'attach', '-t', '=' + config['session']])
+    args.extend([sys.executable, str(Path(__file__).with_name('terminal_connection.py').resolve()),
+                 config['session']])
     spawn(state, 'ttyd', args)
     for _ in range(40):
         try:

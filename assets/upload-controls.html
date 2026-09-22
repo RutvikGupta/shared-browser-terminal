@@ -1,0 +1,69 @@
+<style id="shared-terminal-upload-style">
+.sbt-button { font: 600 13px system-ui, sans-serif; color: #faf9f6; background: #202a38; border: 1px solid #3780e9; border-radius: 8px; padding: 9px 14px; cursor: pointer; }
+.sbt-button:hover { background: #2e5d9e; }
+.sbt-button:focus-visible { outline: 2px solid #faf9f6; outline-offset: 3px; }
+.sbt-button:disabled { opacity: .55; cursor: wait; }
+#sbt-upload, #sbt-choose { position: fixed; right: 16px; top: 12px; z-index: 100; }
+#sbt-dialog { box-sizing: border-box; width: min(780px, 94vw); max-height: 90vh; padding: 20px; border: 1px solid #566578; border-radius: 12px; background: #121212; color: #faf9f6; font: 14px system-ui, sans-serif; }
+#sbt-dialog::backdrop { background: rgb(0 0 0 / 65%); }
+#sbt-dialog header { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+#sbt-dialog h2 { margin: 0; font-size: 19px; }
+#sbt-dialog p { line-height: 1.5; color: #bfc5c3; }
+#sbt-dialog iframe { display: block; width: 100%; height: min(340px, 50vh); border: 1px solid #292929; border-radius: 6px; margin-top: 16px; }
+#sbt-dialog code { overflow-wrap: anywhere; }
+</style>
+<script id="shared-terminal-upload-script">
+(() => {
+  function setup() {
+    const modes = new URL(location.href).searchParams.getAll('arg');
+    const uploadMode = modes.length === 1 && modes[0] === 'upload';
+    if (uploadMode) {
+      const choose = document.createElement('button');
+      choose.id = 'sbt-choose'; choose.className = 'sbt-button';
+      choose.textContent = 'Connecting…'; choose.disabled = true;
+      document.body.append(choose);
+      const poll = setInterval(() => {
+        const term = window.term;
+        if (!term) return;
+        for (let i = 0; i < term.buffer.active.length; i++) {
+          if (term.buffer.active.getLine(i)?.translateToString().includes('Ready to upload.')) {
+            clearInterval(poll); choose.textContent = 'Choose files'; choose.disabled = false; return;
+          }
+        }
+      }, 100);
+      window.addEventListener('pagehide', () => clearInterval(poll), {once: true});
+      choose.addEventListener('click', () => {
+        choose.disabled = true; choose.textContent = 'File selection opened';
+        window.term.paste('\r');
+      });
+      return;
+    }
+    const upload = document.createElement('button');
+    upload.id = 'sbt-upload'; upload.className = 'sbt-button';
+    upload.textContent = '↑ Upload'; upload.setAttribute('aria-label', 'Upload documents');
+    const dialog = document.createElement('dialog');
+    dialog.id = 'sbt-dialog'; dialog.setAttribute('aria-labelledby', 'sbt-upload-title');
+    dialog.innerHTML = '<header><h2 id="sbt-upload-title">Upload documents</h2><button class="sbt-button" type="button" aria-label="Close upload dialog">Close</button></header><p>Click <strong>Choose files</strong> below. Files are saved on the hosting Mac in <code>~/Downloads/terminal-uploads</code>. Your agent keeps running.</p><p>Keep this dialog open until the terminal reports that the files were saved.</p>';
+    document.body.append(upload, dialog);
+    upload.addEventListener('click', () => {
+      const frame = document.createElement('iframe');
+      frame.title = 'Document upload terminal';
+      const url = new URL(location.href); url.search = ''; url.hash = '';
+      url.searchParams.set('arg', 'upload');
+      url.searchParams.set('disableReconnect', 'true');
+      url.searchParams.set('disableLeaveAlert', 'true');
+      url.searchParams.set('disableResizeOverlay', 'true');
+      url.searchParams.set('fontSize', '13');
+      url.searchParams.set('titleFixed', 'Upload documents');
+      frame.src = url.href;
+      dialog.append(frame); dialog.showModal();
+    });
+    dialog.querySelector('button').addEventListener('click', () => dialog.close());
+    dialog.addEventListener('close', () => {
+      dialog.querySelector('iframe')?.remove(); upload.focus();
+    });
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', setup, {once: true});
+  else setup();
+})();
+</script>
