@@ -120,8 +120,8 @@ and never point a new instance at another instance's port or session.
 
 ## Theme, font, and scrollback
 
-The default is the Warp Phenomenon palette, 14px text, line height 1.0, and a hidden
-tmux status bar. This reproduces the colors, not Warp's photograph or GUI widgets.
+The default is the Warp Phenomenon palette, 14px text, line height 1.0, a steady
+(non-blinking) cursor, and a hidden tmux status bar. This reproduces the colors, not Warp's photograph or GUI widgets.
 
 ```bash
 python3 scripts/browser_terminal.py style --font-size 15

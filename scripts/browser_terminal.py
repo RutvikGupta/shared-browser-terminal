@@ -432,7 +432,7 @@ def spawn(state, kind, args):
 
 def ttyd_options(config):
     return ['theme=' + json.dumps(THEME), f'fontSize={config["font_size"]}',
-            'lineHeight=1.0', 'cursorBlink=true', 'cursorStyle=bar',
+            'lineHeight=1.0', 'cursorBlink=false', 'cursorStyle=bar',
             'titleFixed=Shared Terminal', 'disableLeaveAlert=false', 'enableTrzsz=true']
 
 

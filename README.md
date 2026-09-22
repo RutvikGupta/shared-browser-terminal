@@ -12,7 +12,7 @@ Login, an open inbound port, a domain, or a Cloudflare account.
 
 - Persistent shared shell: closing the browser does not stop your commands.
 - Password-protected browser access with a random password and HTTPS public URL.
-- Warp Phenomenon terminal colors, 14px text, and no tmux status bar.
+- Warp Phenomenon terminal colors, 14px text, a steady cursor, and no tmux status bar.
 - Mouse/trackpad scrollback: 50,000 lines in the first and subsequent windows.
 - Floating Upload button for documents, with a separate connection that leaves agents running.
 - Persistent browser text selection: drag, release, then **⌘C** to copy on Mac.
