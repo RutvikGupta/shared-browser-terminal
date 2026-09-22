@@ -15,6 +15,7 @@ Login, an open inbound port, a domain, or a Cloudflare account.
 - Warp Phenomenon terminal colors, 14px text, and no tmux status bar.
 - Mouse/trackpad scrollback: 50,000 lines in the first and subsequent windows.
 - Floating Upload button for documents, with a separate connection that leaves agents running.
+- Persistent browser text selection: drag, release, then **⌘C** to copy on Mac.
 - Local Bash history suggestions: **Tab** or **Right Arrow** accepts ghost text.
 - Normal Tab completion when no suggestion is visible; **Ctrl+R** searches history.
 - Optional personal Codex skill: invoke **`$shared-browser-terminal`**.
@@ -97,6 +98,7 @@ scripts from a normal checkout without installing a Codex skill.
 
 | Action | Control |
 | --- | --- |
+| Highlight and copy terminal text | Drag, release, then ⌘C (Mac) or Ctrl+Shift+C |
 | Accept the visible inline suggestion | Tab or Right Arrow at the end of the input |
 | Complete a command/path when no suggestion is visible | Tab |
 | Search local command history | Ctrl+R |
@@ -215,6 +217,17 @@ These use isolated tmux servers and synthetic history. They check visible
 suggestions, Tab acceptance without execution, path completion, history search,
 and inheritance in new windows and splits without reading your command history
 or touching your live terminal.
+
+For browser selection and clipboard checks, install Playwright and its Chromium
+browser in your own test environment, then run:
+
+```bash
+node scripts/smoke_test_selection.cjs
+```
+
+Set `PLAYWRIGHT_MODULE` to an installed Playwright module path if necessary. This
+uses a separate authenticated loopback terminal and synthetic text, checking drag
+release, clipboard copying, Ctrl+C delivery, and wheel scrollback.
 
 ## Credits
 

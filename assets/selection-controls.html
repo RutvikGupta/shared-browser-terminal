@@ -1,0 +1,66 @@
+<script id="shared-terminal-selection-script">
+(() => {
+  // Use xterm's public selection API. tmux mouse reporting otherwise consumes
+  // drag selection and clears its highlight when its copy mode exits.
+  let drag = null;
+  const screenFor = term => term?.element?.querySelector('.xterm-screen');
+  const focused = term => term?.element?.contains(document.activeElement);
+  function cell(term, screen, event) {
+    const rect = screen.getBoundingClientRect();
+    const column = Math.max(0, Math.min(term.cols, Math.floor((event.clientX - rect.left) * term.cols / rect.width)));
+    const row = Math.max(0, Math.min(term.rows - 1, Math.floor((event.clientY - rect.top) * term.rows / rect.height)));
+    return (term.buffer.active.viewportY + row) * term.cols + column;
+  }
+  function selectTo(event) {
+    const {term, screen, anchor} = drag;
+    const end = cell(term, screen, event);
+    const first = Math.min(anchor, end);
+    term.select(first % term.cols, Math.floor(first / term.cols), Math.abs(end - anchor));
+  }
+  document.addEventListener('mousedown', event => {
+    const term = window.term, screen = screenFor(term);
+    if (event.button !== 0 || event.altKey || event.ctrlKey || event.metaKey || !screen?.contains(event.target)) return;
+    event.preventDefault(); event.stopImmediatePropagation();
+    term.focus(); term.clearSelection();
+    drag = {term, screen, anchor: cell(term, screen, event)};
+  }, true);
+  document.addEventListener('mousemove', event => {
+    if (!drag) return;
+    if (!(event.buttons & 1)) { drag = null; return; }
+    event.preventDefault(); event.stopImmediatePropagation();
+    selectTo(event);
+  }, true);
+  document.addEventListener('mouseup', event => {
+    if (!drag || event.button !== 0) return;
+    event.preventDefault(); event.stopImmediatePropagation();
+    selectTo(event); drag = null;
+  }, true);
+  // xterm's normal click/word-selection handlers must not clear our selection.
+  for (const type of ['click', 'dblclick']) {
+    document.addEventListener(type, event => {
+      if (event.button === 0 && !event.altKey && !event.ctrlKey && !event.metaKey && screenFor(window.term)?.contains(event.target)) {
+        event.preventDefault(); event.stopImmediatePropagation();
+      }
+    }, true);
+  }
+  window.addEventListener('blur', () => { drag = null; });
+  document.addEventListener('copy', event => {
+    const term = window.term;
+    if (!focused(term) || !term.hasSelection() || !event.clipboardData) return;
+    event.clipboardData.setData('text/plain', term.getSelection());
+    event.preventDefault(); event.stopImmediatePropagation();
+  }, true);
+  document.addEventListener('keydown', event => {
+    const term = window.term;
+    const shortcut = event.key.toLowerCase() === 'c' && !event.altKey &&
+      ((event.metaKey && !event.ctrlKey) || (event.ctrlKey && event.shiftKey && !event.metaKey));
+    if (!shortcut || !focused(term) || !term.hasSelection()) return;
+    event.preventDefault(); event.stopImmediatePropagation();
+    const fallback = () => {
+      if (!document.execCommand('copy')) alert('Copy was blocked by the browser. Allow clipboard access and try again.');
+    };
+    if (navigator.clipboard?.writeText) navigator.clipboard.writeText(term.getSelection()).catch(fallback);
+    else fallback();
+  }, true);
+})();
+</script>

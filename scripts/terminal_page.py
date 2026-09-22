@@ -1,4 +1,4 @@
-"""Add local upload controls to the HTML embedded in the installed ttyd binary."""
+"""Add local selection and upload controls to the HTML embedded in the installed ttyd binary."""
 
 import base64
 import gzip
@@ -13,7 +13,9 @@ import urllib.request
 
 def write_terminal_page(state, executable):
     page = builtin_page(executable)
-    controls = Path(__file__).resolve().parent.parent.joinpath('assets/upload-controls.html').read_text()
+    assets = Path(__file__).resolve().parent.parent / 'assets'
+    controls = ''.join((assets / name).read_text() for name in
+                       ['selection-controls.html', 'upload-controls.html'])
     return write_page(state / 'index.html', page, controls)
 
 

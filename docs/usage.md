@@ -144,6 +144,22 @@ recreate a live terminal to enlarge its history without saving its work.
 A colored strip left behind by an exited program can be screen content rather
 than a toolbar. At an idle shell, Ctrl+L redraws without deleting typed input.
 
+## Highlight and copy
+
+Drag over terminal text with the primary mouse button, release, then press
+**Command+C** on Mac or **Ctrl+Shift+C** on other platforms. The highlight stays
+until you select again or interact with the terminal. Copying writes plain text
+to the client laptop's clipboard and sends no input to the remote shell.
+**Ctrl+C** retains its usual command-interrupt behavior.
+
+Ordinary dragging selects in the browser, even with tmux mouse mode enabled.
+Wheel/trackpad scrolling still reaches tmux history. Scroll to the desired output
+first, then highlight the visible text; drag selection is limited to the visible
+screen. Hold **Option/Alt** while clicking to use the terminal's normal mouse
+handling instead. Browser/application shortcuts with modifiers are preserved.
+
+Refresh an existing browser tab after upgrading to load the selection controls.
+
 ## Suggestions and completion
 
 Homebrew Bash loads the user's existing login configuration and then ble.sh.

@@ -65,6 +65,8 @@ publish an old unauthenticated listener such as port 7681.
 
 - Warp **Phenomenon** palette, **14px**, line height **1.0**, hidden tmux status
   bar, trackpad/wheel scrolling, 50,000 lines of scrollback for new panes.
+- Drag to highlight text; the highlight stays after release. **⌘C** copies on
+  Mac (**Ctrl+Shift+C** elsewhere). **Ctrl+C** still interrupts commands.
 - Homebrew Bash with ble.sh suggestions; **Tab/Right** accepts ghost text,
   **Ctrl+R** searches history. New windows/splits inherit this configuration.
   Existing local shells must flush history before other shells can import it;
