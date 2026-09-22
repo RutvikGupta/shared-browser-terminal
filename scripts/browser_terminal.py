@@ -58,12 +58,7 @@ def main():
         if args.action == 'start':
             if session_id is None:
                 config['cwd'] = str(args.cwd.resolve())
-                # Spawn a shell, never a second interface to a desktop agent session.
-                run('tmux', 'new-session', '-d', '-s', config['session'], '-c', config['cwd'],
-                    '-e', 'COLORTERM=truecolor', '-x', '140', '-y', '45',
-                    shlex.join(['/usr/bin/env', '-u', 'NO_COLOR', 'COLORTERM=truecolor',
-                                bash_executable(), '--rcfile', str(Path(__file__).with_name('bashrc.bash')), '-i']))
-                session_id = find_session(config['session'])
+                session_id = create_session(config)
         if session_id is None:
             raise RuntimeError('Shared terminal is absent; run start first.')
         apply_tmux_theme(session_id)
@@ -79,6 +74,33 @@ def main():
             verify_http(state, config, public=True)
             verify_websocket(state)
         print(json.dumps(status(state, config), indent=2))
+
+
+def create_session(config):
+    # Set history retention before creating the user's first real pane.
+    # The temporary window never runs a user shell or agent.
+    session_id, bootstrap_window = run(
+        'tmux', 'new-session', '-d', '-P', '-F', '#{session_id} #{window_id}',
+        '-s', config['session'], '-n', 'initializing', '-c', config['cwd'],
+        '-x', '140', '-y', '45', '/bin/sleep 300').split()
+    try:
+        apply_tmux_theme(session_id)
+        window = run('tmux', 'new-window', '-d', '-P', '-F', '#{window_id}',
+                     '-t', session_id + ':', '-n', 'terminal', '-c', config['cwd'])
+        run('tmux', 'swap-window', '-d', '-s', window, '-t', bootstrap_window)
+        run('tmux', 'select-window', '-t', window)
+        run('tmux', 'kill-window', '-t', bootstrap_window)
+        return session_id
+    except Exception:
+        # Clean up only the new session owned by this invocation.
+        subprocess.run(['tmux', 'kill-session', '-t', session_id], capture_output=True)
+        raise
+
+
+def shell_command():
+    return shlex.join(['/usr/bin/env', '-u', 'NO_COLOR', 'COLORTERM=truecolor',
+                       bash_executable(), '--rcfile',
+                       str(Path(__file__).with_name('bashrc.bash').resolve()), '-i'])
 
 
 def bash_executable():
@@ -126,6 +148,10 @@ def require_tools():
     missing = [package for command, package in packages.items() if not shutil.which(command)]
     if missing:
         raise RuntimeError('Install missing tools with Homebrew: ' + ' '.join(missing))
+    bash_executable()
+    if not (Path.home() / '.local/share/blesh/ble.sh').is_file():
+        raise RuntimeError('Install history suggestions first: python3 ' +
+                           str(Path(__file__).with_name('install_blesh.py').resolve()))
 
 
 def run(*args):
@@ -154,6 +180,8 @@ def apply_tmux_theme(session_id):
     for option, value in {
         'mouse': 'on',
         'history-limit': '50000',
+        'default-shell': bash_executable(),
+        'default-command': shell_command(),
         'status': 'off',
         'status-style': 'fg=#bfc5c3,bg=#292929',
         'status-left': '#[fg=#3780e9,bold] SHARED TERMINAL #[default] ',

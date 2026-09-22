@@ -10,6 +10,11 @@ the terminal through ttyd and an outbound Cloudflare Quick Tunnel. Both laptops
 can attach to the same terminal. No SSH Remote Login, Cloudflare account, domain,
 or Vercel deployment is needed for this temporary setup.
 
+Source: [RutvikGupta/shared-browser-terminal](https://github.com/RutvikGupta/shared-browser-terminal).
+Keep improvements to this tool in that standalone repository and sync the personal
+installation when applying updates. All requested terminal preferences are defaults
+for new sessions, windows, and splits.
+
 Install this skill in the personal skills directory, outside project repositories.
 Do not add terminal runtime files, credentials, or history to a project or PR.
 
@@ -63,6 +68,12 @@ Inspect actual state rather than trusting historical PIDs.
 
    ```bash
    HOMEBREW_NO_AUTO_UPDATE=1 HOMEBREW_NO_INSTALL_CLEANUP=1 brew install bash tmux ttyd cloudflared trzsz-go
+   ```
+
+   Install history suggestions if they are not present:
+
+   ```bash
+   python3 ~/.codex/skills/shared-browser-terminal/scripts/install_blesh.py
    ```
 
 3. When the user requests a shared browser terminal, start it in the intended
@@ -144,7 +155,9 @@ is **Ctrl+B**, then **[**, followed by Page Up or arrow keys.
 Applications that handle mouse events themselves may consume scrolling; use the
 keyboard fallback to access tmux history in that case.
 
-Set session `history-limit 50000` for newly created windows. Existing windows
+The helper configures `history-limit 50000` before creating the first real pane,
+so the initial and subsequent windows both receive it. Session `default-command`
+loads the same Bash setup for new windows and splits. Existing windows
 retain their original history limit (typically 2000); do not claim their buffers
 were enlarged or recreate them just to increase retention. Inspect
 `#{history_size}` and `#{history_limit}`. Never clear history while enabling scroll.

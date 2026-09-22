@@ -100,11 +100,12 @@ Mouse mode enables scrollback. If a program consumes mouse events, press Ctrl+B,
 then `[` to enter tmux copy mode directly. Escape leaves the default copy mode;
 `q` works with a vi copy-mode keymap.
 
-The helper sets a history limit of 50,000 lines for newly created windows.
-Existing windows retain the limit they were created with; increasing a session
-option does not enlarge their buffers or recover discarded output. A first
-window created before this setting is applied can retain tmux's previous default.
-Do not recreate a live terminal to enlarge its history without saving its work.
+Every new session starts with 50,000 lines of scrollback in its first window.
+Additional windows inherit that limit and the configured Homebrew Bash startup,
+so history suggestions and completion also work after Ctrl+B then C.
+Older existing windows retain the limit they were created with; increasing a
+session option cannot enlarge their buffers or recover discarded output. Do not
+recreate a live terminal to enlarge its history without saving its work.
 
 A colored strip left behind by an exited program can be screen content rather
 than a toolbar. At an idle shell, Ctrl+L redraws without deleting typed input.

@@ -13,7 +13,7 @@ Login, an open inbound port, a domain, or a Cloudflare account.
 - Persistent shared shell: closing the browser does not stop your commands.
 - Password-protected browser access with a random password and HTTPS public URL.
 - Warp Phenomenon terminal colors, 14px text, and no tmux status bar.
-- Mouse/trackpad scrollback, plus keyboard access to tmux history.
+- Mouse/trackpad scrollback: 50,000 lines in the first and subsequent windows.
 - Upload documents from the client laptop into the host through the same connection.
 - Local Bash history suggestions: **Tab** or **Right Arrow** accepts ghost text.
 - Normal Tab completion when no suggestion is visible; **Ctrl+R** searches history.
@@ -92,6 +92,7 @@ scripts from a normal checkout without installing a Codex skill.
 | Leave tmux history | Escape (or `q` if using a vi copy-mode keymap) |
 | Redraw an idle shell without deleting typed input | Ctrl+L |
 
+New tmux windows and splits inherit the same Bash setup automatically.
 Completion and suggestions work at the Bash prompt, not inside an agent's chat
 composer. History suggestions run locally; no AI service receives your history.
 
@@ -183,11 +184,13 @@ For a real terminal test after installing dependencies:
 
 ```bash
 python3 scripts/smoke_test_shell.py
+python3 scripts/smoke_test_session.py
 ```
 
-It uses an isolated tmux server and synthetic history. It checks visible
-suggestions, Tab acceptance without execution, path completion, and history
-search without reading your command history or touching your live terminal.
+These use isolated tmux servers and synthetic history. They check visible
+suggestions, Tab acceptance without execution, path completion, history search,
+and inheritance in new windows and splits without reading your command history
+or touching your live terminal.
 
 ## Credits
 
