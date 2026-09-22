@@ -1,0 +1,15 @@
+__pycache__/
+*.py[cod]
+.DS_Store
+.venv/
+.env
+.env.*
+*.log
+*.pid
+login.txt
+url.txt
+settings.json
+theme.json
+.bash_history
+.zsh_history
+state/
