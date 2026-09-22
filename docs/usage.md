@@ -153,6 +153,32 @@ Use `/usr/local/bin/bash` on Intel Homebrew. Do not send these shell commands in
 an active agent or another interactive program. Shell suggestions do not apply
 inside a Codex/Claude chat composer.
 
+## Upload documents
+
+The host needs `brew install trzsz-go`. The helper enables ttyd's `enableTrzsz`
+client option, which transfers files over the existing terminal WebSocket.
+Refresh a page opened before the option was enabled. Run `trz` at the browser's
+Bash prompt to open the client laptop's file picker. Files land in the host's
+current directory; `trz /path/to/destination` chooses a different existing folder.
+The default does not overwrite existing files. Do not add `-y`/`--overwrite`
+unless replacing files is intentional.
+
+The files stay on the hosting Mac, not in the Git repository unless you select
+a destination there. A file transfer is not an agent attachment: tell the agent
+the resulting host path. Avoid selecting a project directory if the documents
+should remain outside version control.
+
+Do not start a transfer inside an agent's chat composer. Create another tmux
+window with Ctrl+B then C if the agent is running, upload from its shell, and
+switch back with Ctrl+B then P. Use one browser client for the transfer: multiple
+clients attached to the same pane may all see the file-transfer prompt.
+
+If the picker does not open, confirm `trz --version` works, refresh the browser,
+and check that `enableTrzsz` is not overridden to false in the URL. A browser may
+ask permission to select local files; canceling the picker cancels the transfer.
+Keep the terminal connected until it reports completion. Drag-and-drop may also
+work, but it can type a receive command, so use it only at an idle shell prompt.
+
 ## Connection diagnosis
 
 1. Run `status` to identify the intended session, processes, and URL.

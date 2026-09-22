@@ -122,7 +122,8 @@ def save_config(state, config):
 
 
 def require_tools():
-    missing = [name for name in ['tmux', 'ttyd', 'cloudflared'] if not shutil.which(name)]
+    packages = {'tmux': 'tmux', 'ttyd': 'ttyd', 'cloudflared': 'cloudflared', 'trz': 'trzsz-go'}
+    missing = [package for command, package in packages.items() if not shutil.which(command)]
     if missing:
         raise RuntimeError('Install missing tools with Homebrew: ' + ' '.join(missing))
 
@@ -232,7 +233,7 @@ def spawn(state, kind, args):
 def ttyd_options(config):
     return ['theme=' + json.dumps(THEME), f'fontSize={config["font_size"]}',
             'lineHeight=1.0', 'cursorBlink=true', 'cursorStyle=bar',
-            'titleFixed=Shared Terminal', 'disableLeaveAlert=false']
+            'titleFixed=Shared Terminal', 'disableLeaveAlert=false', 'enableTrzsz=true']
 
 
 def restart_ttyd(state, config):

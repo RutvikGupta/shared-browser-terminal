@@ -62,7 +62,7 @@ Inspect actual state rather than trusting historical PIDs.
 2. Install missing dependencies only when needed:
 
    ```bash
-   HOMEBREW_NO_AUTO_UPDATE=1 HOMEBREW_NO_INSTALL_CLEANUP=1 brew install bash tmux ttyd cloudflared
+   HOMEBREW_NO_AUTO_UPDATE=1 HOMEBREW_NO_INSTALL_CLEANUP=1 brew install bash tmux ttyd cloudflared trzsz-go
    ```
 
 3. When the user requests a shared browser terminal, start it in the intended
@@ -184,6 +184,24 @@ It downloads the official prebuilt release, extracts it with the tarfile data
 filter, and installs it at `~/.local/share/blesh`.
 Do not append the upstream global `.bashrc` example: this skill loads it only in
 the shared terminal. Missing ble.sh leaves the shell usable with a notice.
+
+## Upload documents from the client laptop
+
+The ttyd client enables `enableTrzsz=true`; Homebrew `trzsz-go` supplies `trz`.
+After refreshing the browser, run `trz` at an idle Bash prompt. A browser file
+picker selects files from the client laptop and transfers them into the host's
+current directory. PDFs, Word documents, images, and other files are supported.
+Use `trz /absolute/destination` for a chosen directory (create it first).
+Keep the default non-overwrite behavior; do not add `--overwrite` implicitly.
+Uploads use the existing authenticated terminal WebSocket and tunnel.
+
+Do not type `trz` or drag files into an active agent's input. If an agent is busy,
+use another tmux window (Ctrl+B then C), upload there, and return (Ctrl+B then P).
+The agent can read the resulting host file path. Coordinate attached clients so
+only the uploading browser responds to the transfer prompt. Drag-and-drop can
+trigger the receive command in supported browsers; the explicit `trz` picker is
+the primary documented flow. Do not start an upload on behalf of the user unless
+they select or identify a file to transfer.
 
 ## Troubleshooting and stopping
 

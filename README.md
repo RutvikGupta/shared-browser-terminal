@@ -14,6 +14,7 @@ Login, an open inbound port, a domain, or a Cloudflare account.
 - Password-protected browser access with a random password and HTTPS public URL.
 - Warp Phenomenon terminal colors, 14px text, and no tmux status bar.
 - Mouse/trackpad scrollback, plus keyboard access to tmux history.
+- Upload documents from the client laptop into the host through the same connection.
 - Local Bash history suggestions: **Tab** or **Right Arrow** accepts ghost text.
 - Normal Tab completion when no suggestion is visible; **Ctrl+R** searches history.
 - Optional personal Codex skill: invoke **`$shared-browser-terminal`**.
@@ -26,7 +27,7 @@ connection that permits Cloudflare Tunnel. The client laptop only needs a browse
 The host must remain awake and online.
 
 ```bash
-brew install python bash tmux ttyd cloudflared
+brew install python bash tmux ttyd cloudflared trzsz-go
 ```
 
 The shared terminal uses Homebrew Bash. Apple's bundled Bash 3.2 lacks the idle
@@ -108,6 +109,29 @@ python3 scripts/browser_terminal.py style --font-size 15
 python3 scripts/browser_terminal.py stop
 ```
 
+## Upload documents
+
+Refresh the terminal page after upgrading, then run this at the **shell prompt**:
+
+```bash
+trz
+```
+
+Select PDFs, Word documents, images, or other files in the browser file picker.
+They are saved to the hosting Mac's current terminal directory, ready for your
+agent to read. To choose a destination explicitly:
+
+```bash
+mkdir -p "$HOME/Downloads/terminal-uploads"
+trz "$HOME/Downloads/terminal-uploads"
+```
+
+Do not run this inside a Codex/Claude chat composer. If the agent is busy, press
+**Ctrl+B, then C** for another tmux window and upload from its shell. Return with
+**Ctrl+B, then P**, and give the agent the uploaded file's host path. Avoid having
+multiple browsers respond to the same transfer prompt. No additional server,
+account, or password is needed. See [upload troubleshooting](docs/usage.md#upload-documents).
+
 ## Use with Codex
 
 After installing the personal skill, start a new Codex session if it is not yet
@@ -170,6 +194,7 @@ search without reading your command history or touching your live terminal.
 - [tmux](https://github.com/tmux/tmux): persistent terminal sessions.
 - [ttyd](https://github.com/tsl0922/ttyd): browser terminal and authentication.
 - [Cloudflare Quick Tunnels](https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/do-more-with-tunnels/trycloudflare/): outbound tunnel.
+- [trzsz](https://github.com/trzsz/trzsz-go): file uploads over the terminal connection.
 - [ble.sh](https://github.com/akinomyoga/ble.sh): Bash line editing and suggestions.
 - [Warp Phenomenon palette](https://github.com/warpdotdev/warp/blob/master/app/src/themes/default_themes.rs): terminal colors. No Warp background images or application code are included.
 
