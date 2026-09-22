@@ -74,8 +74,10 @@ publish an old unauthenticated listener such as port 7681.
   Existing local shells must flush history before other shells can import it;
   a new terminal is not required. Details: [history and completion](docs/usage.md#suggestions-and-completion).
 - Floating **↑ Upload**, then **Choose files** transfers to
-  `~/Downloads/terminal-uploads` through a separate authenticated connection.
-  It does not type into the active agent. [Upload guide](docs/usage.md#upload-documents).
+  `~/Downloads/terminal-uploads/upload-…/` through a separate authenticated
+  connection. After confirmed completion, quoted paths are pasted at the current
+  terminal input cursor without Enter or clearing draft text. The upload dialog
+  has an opt-out checkbox. Do not start an upload unless the user identifies files. [Upload guide](docs/usage.md#upload-documents).
 - Start a regular shell. Do not automatically `codex resume` the desktop chat;
   that starts another interface and can trigger the conversation ownership lock.
   Users run CLI agents inside the shared shell and attach from either laptop.

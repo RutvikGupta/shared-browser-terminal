@@ -14,7 +14,7 @@ Login, an open inbound port, a domain, or a Cloudflare account.
 - Password-protected browser access with a random password and HTTPS public URL.
 - Warp Phenomenon terminal colors, 14px text, a steady cursor, and no tmux status bar.
 - Mouse/trackpad scrollback: 50,000 lines in the first and subsequent windows.
-- Floating Upload button for documents, with a separate connection that leaves agents running.
+- Floating Upload button: completed host paths are inserted into terminal input without Enter.
 - Cursor stays hidden during output redraws and returns when output settles or you type.
 - Persistent browser text selection: drag, release, then **⌘C** to copy on Mac.
 - Local Bash history suggestions: **Tab** or **Right Arrow** accepts ghost text.
@@ -129,14 +129,17 @@ python3 scripts/browser_terminal.py stop
 
 ## Upload documents
 
-Refresh the terminal page after upgrading. Click **↑ Upload** in the upper-right,
-then **Choose files** in the dialog. Select documents from your laptop; they are
-saved on the hosting Mac in `~/Downloads/terminal-uploads`. Keep the dialog open
-until the transfer reports completion, then give your agent the resulting path.
+Refresh the terminal page after upgrading. Click **↑ Upload**, then **Choose
+files**. Once all files are confirmed saved,
+their quoted host paths are inserted at the current terminal input cursor and
+the dialog closes. Existing draft text is preserved; **Enter is never sent**.
+Uncheck **Insert completed file paths** to upload without changing terminal input.
+Each transfer uses its own folder under `~/Downloads/terminal-uploads/`, avoiding
+filename collisions.
 
 The button opens a separate authenticated receiver, so you can upload while an
-agent is running. It does not type into the shared terminal. Chrome or Edge is
-recommended for the native file picker.
+agent is running. Only completed paths are inserted into the shared input; the
+upload command runs in the separate receiver. Chrome and Edge support the picker.
 
 For uploads into the shell's current directory instead, run at the **shell prompt**:
 
@@ -224,6 +227,7 @@ browser in your own test environment, then run:
 
 ```bash
 node scripts/smoke_test_selection.cjs
+node scripts/smoke_test_upload.cjs
 ```
 
 Set `PLAYWRIGHT_MODULE` to an installed Playwright module path if necessary. This

@@ -222,9 +222,18 @@ inside a Codex/Claude chat composer.
 ## Upload documents
 
 Click **↑ Upload** at the top-right, then **Choose files** in the dialog. This
-uses a separate authenticated terminal connection and saves into the fixed host
-directory `~/Downloads/terminal-uploads`. It leaves the current agent and shell
-untouched. Wait for completion before closing; closing mid-transfer cancels the
+uses a separate authenticated terminal connection and saves into a unique folder
+under `~/Downloads/terminal-uploads/`. After the receiver confirms all files were
+saved, their quoted host paths are pasted at the main terminal’s input cursor.
+Existing draft text is preserved and **Enter is never sent**. The dialog then
+closes and the terminal regains focus. This does not restart your agent.
+
+Uncheck **Insert completed file paths** to leave terminal input unchanged.
+Canceled, failed, or incomplete transfers do not insert paths. Filenames with
+control characters are saved but are not automatically inserted. Spaces, Unicode,
+apostrophes, and shell metacharacters are quoted as literal path text.
+
+Wait for completion before closing; closing mid-transfer cancels the
 receiver and can leave a partial file. Reopen the dialog to upload more files.
 Chrome and Edge support the native file picker used by this flow.
 
@@ -244,8 +253,8 @@ The default does not overwrite existing files. Do not add `-y`/`--overwrite`
 unless replacing files is intentional.
 
 The files stay on the hosting Mac, not in the Git repository unless you select
-a destination there. A file transfer is not an agent attachment: tell the agent
-the resulting host path. Avoid selecting a project directory if the documents
+a destination there. A file transfer is not an agent attachment: the inserted paths let the agent
+read the host files after you submit your prompt. Avoid selecting a project directory if the documents
 should remain outside version control.
 
 Do not start a transfer inside an agent's chat composer. Create another tmux
