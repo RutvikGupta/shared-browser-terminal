@@ -15,6 +15,7 @@ Login, an open inbound port, a domain, or a Cloudflare account.
 - Warp Phenomenon terminal colors, 14px text, a steady cursor, and no tmux status bar.
 - Mouse/trackpad scrollback: 50,000 lines in the first and subsequent windows.
 - Floating Upload button for documents, with a separate connection that leaves agents running.
+- Cursor stays hidden during output redraws and returns when output settles or you type.
 - Persistent browser text selection: drag, release, then **⌘C** to copy on Mac.
 - Local Bash history suggestions: **Tab** or **Right Arrow** accepts ghost text.
 - Normal Tab completion when no suggestion is visible; **Ctrl+R** searches history.

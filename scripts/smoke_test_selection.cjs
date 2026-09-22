@@ -16,7 +16,7 @@ sys.path.insert(0, str(Path(sys.argv[1])/'scripts'))
 import browser_terminal as terminal
 state=Path(sys.argv[2])
 fixture=state/'fixture.py'
-fixture.write_text("import os,tty\nfrom pathlib import Path\ntty.setraw(0)\nos.write(1, ('\\x1b[2J\\x1b[H'+'\\r\\n'.join('Copy sample line %03d alpha beta gamma' % i for i in range(100))).encode())\nwhile True:\n data=os.read(0,1024)\n with Path(__file__).with_name('input.bin').open('ab') as out: out.write(data)\n")
+fixture.write_text("import os,tty,time\nfrom pathlib import Path\ntty.setraw(0)\nos.write(1, ('\\x1b[2J\\x1b[H'+'\\r\\n'.join('Copy sample line %03d alpha beta gamma' % i for i in range(100))).encode())\nwhile True:\n data=os.read(0,1024)\n if data==b'r':\n  for i in range(30):\n   os.write(1,b'\\x1b[?25l\\x1b[1;20H.\\x1b[?25h')\n   time.sleep(0.035)\n with Path(__file__).with_name('input.bin').open('ab') as out: out.write(data)\n")
 with socket.socket() as sock:
  sock.bind(('127.0.0.1',0)); port=sock.getsockname()[1]
 config={'session':'selection-test','port':port,'font_size':14,'cwd':str(state)}
@@ -78,6 +78,18 @@ terminal.restart_ttyd(state,config)
     }
     assert.equal(copying,'1','wheel must still enter tmux scrollback');
     assert(await page.getByRole('button',{name:'Upload documents',exact:true}).isVisible());
+    execFileSync('tmux',['send-keys','-X','-t','selection-test:0.0','cancel'],{env});
+    await page.waitForFunction(()=>window.term.options.theme.cursor !== '#00000000');
+    const cursor=await page.evaluate(()=>window.term.options.theme.cursor);
+    // Trigger redraws from the synthetic program, through real tmux/ttyd.
+    execFileSync('tmux',['send-keys','-t','selection-test:0.0','-l','r'],{env});
+    await page.waitForFunction(()=>window.term.options.theme.cursor === '#00000000');
+    await page.waitForFunction(expected=>window.term.options.theme.cursor === expected,cursor);
+    execFileSync('tmux',['send-keys','-t','selection-test:0.0','-l','r'],{env});
+    await page.waitForFunction(()=>window.term.options.theme.cursor === '#00000000');
+    await page.keyboard.type('x');
+    assert.equal(await page.evaluate(()=>window.term.options.theme.cursor),cursor,'typing restores caret during redraw');
+    console.log('PASS: cursor hidden during real tmux output bursts, restored after output settles and immediately on input.');
     console.log('PASS: forward/reverse drag persists; Command+C and Ctrl+Shift+C copy exact text without shell input; Ctrl+C interrupts; wheel scrollback and Upload remain available.');
   } finally {
     if(browser)await browser.close();

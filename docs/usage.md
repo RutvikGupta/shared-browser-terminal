@@ -144,6 +144,15 @@ recreate a live terminal to enlarge its history without saving its work.
 A colored strip left behind by an exited program can be screen content rather
 than a toolbar. At an idle shell, Ctrl+L redraws without deleting typed input.
 
+## Cursor during agent output
+
+The browser suppresses intermediate caret positions while terminal output is
+redrawing, then restores the caret after 180 ms without new output. Typing restores
+it immediately and keeps it visible through the resulting input echo. This
+reduces cursor flicker from Codex/tmux redraws without changing the agent process,
+its animations, or terminal input. It does not make whole-screen updates atomic.
+Refresh the browser after upgrading to load this behavior.
+
 ## Highlight and copy
 
 Drag over terminal text with the primary mouse button, release, then press

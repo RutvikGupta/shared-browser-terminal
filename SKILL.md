@@ -65,7 +65,8 @@ publish an old unauthenticated listener such as port 7681.
 
 - Warp **Phenomenon** palette, **14px**, line height **1.0**, hidden tmux status
   bar, a steady cursor, trackpad/wheel scrolling, 50,000 lines of scrollback
-  for new panes.
+  for new panes. The browser hides transient caret positions during output
+  redraws and restores the caret after output settles or when you type.
 - Drag to highlight text; the highlight stays after release. **⌘C** copies on
   Mac (**Ctrl+Shift+C** elsewhere). **Ctrl+C** still interrupts commands.
 - Homebrew Bash with ble.sh suggestions; **Tab/Right** accepts ghost text,
