@@ -5,22 +5,53 @@ an absolute script path when calling from another directory.
 
 ## Start, reconnect, and stop
 
-`start --cwd PATH --publish` creates the `codex-browser` tmux session only when it
-does not exist. For an existing session, it preserves the working directory,
-shell, and programs. Start without `--publish` to prepare local access only:
+`open --cwd PATH` is the normal command for starting or reconnecting. It creates
+the session only when absent, preserves active programs, checks local auth before
+publishing, and verifies public HTTP and WebSocket access in the same invocation.
+For an existing session, `--cwd` does not navigate an active shell.
 
 ```bash
-python3 scripts/browser_terminal.py start --cwd "$HOME"
-python3 scripts/browser_terminal.py status
+python3 scripts/browser_terminal.py open --cwd "$HOME"
+python3 scripts/browser_terminal.py open --cwd "$HOME" --new-window --request-id another-shell
 ```
 
-When reconnecting, check `status` and `verify`, then open the saved URL. Do not
-start another agent just to view the running one. `verify` expects a public URL;
-for local-only operation, `start` checks local authentication itself.
+`--new-window` creates and selects a shell in the existing session after public
+readiness, or uses the first shell if it just created the session. Other windows
+keep running. A request ID makes retries reuse that window; use a new ID for a
+separate request. Up to 100 recent IDs are retained. Concurrent mutation commands
+are rejected with a clear message rather than racing over processes and state.
+
+Healthy access returns immediately after checks. Temporary DNS, HTTP 5xx, and
+connection failures are retried within `--wait` seconds (default 45, maximum 120).
+Network calls can slightly exceed that budget. An unavailable tunnel older than
+two minutes may be replaced once per invocation. Newly launched tunnels are kept
+to avoid delaying DNS through repeated restarts. Pending results exit 2, mask the
+URL, and preserve state. Retry the same command and request ID once; if still
+pending, use the diagnosis section. Authentication/TLS failures are not retried.
+
+For a newly launched tunnel, public DNS is checked before asking the host resolver,
+so premature lookups do not seed a cached failure in the router.
+If host DNS fails but Cloudflare DNS resolves the hostname, the helper verifies
+HTTPS and WebSocket access at that address while retaining the original Host,
+SNI, and certificate hostname checks. The output says `dns_source: cloudflare`
+and includes a notice. This does not change system DNS, browser settings, or
+`/etc/hosts`. Browsers using a resolver with a cached NXDOMAIN may still fail until
+that cache expires. Only the public hostname is sent to
+[Cloudflare DNS over HTTPS](https://developers.cloudflare.com/1.1.1.1/encryption/dns-over-https/make-api-requests/dns-json/), never terminal credentials.
+
+For Codex tool calls, use `login: false`, `workdir: /private/tmp`, and the normal
+`require_escalated` tool permission mechanism. Login profiles can run unrelated
+Git configuration writes; restricted process inspection can block `ps`/tmux.
+These are host utilities, not project Docker jobs. Separate agent hooks that fail
+before a tool call must be diagnosed independently; this helper does not edit them.
+
+`start --cwd PATH` still prepares local-only access, and `start --publish` remains
+compatible. `status` reports saved state with `readiness: not_checked`; use it for
+diagnosis, not proof that a URL works. `verify` explicitly checks existing access.
 
 `stop` ends the managed public tunnel and authenticated ttyd server while leaving
-tmux running. Restarting with `start --publish` keeps that terminal but creates a
-new URL. A browser refresh may be needed after a ttyd restart.
+tmux running. `open` after stopping keeps the terminal but creates a new URL.
+A browser refresh may be needed after a ttyd restart.
 
 To end the shell too, exit its programs normally, then type `exit` in the shell.
 Stop sharing before deliberately ending the session. Do not kill the entire tmux
@@ -38,6 +69,8 @@ Default runtime directory: `/private/tmp/codex-browser-remote/`.
 | `url.txt` | Current Cloudflare URL |
 | `settings.json` | Session, port, working directory, and font settings |
 | `theme.json` | Generated terminal palette |
+| `window-requests.json` | Recent request IDs and their tmux window IDs |
+| `operation.lock` | Serializes startup, styling, and shutdown |
 | `index.html` | Installed ttyd page with the floating upload controls |
 
 The username defaults to the hosting Mac's username. The password is generated
@@ -57,7 +90,7 @@ the managed credential file, and restart:
 ```bash
 python3 scripts/browser_terminal.py stop
 rm /private/tmp/codex-browser-remote/login.txt
-python3 scripts/browser_terminal.py start --publish
+python3 scripts/browser_terminal.py open
 python3 scripts/browser_terminal.py credentials
 ```
 
@@ -78,7 +111,7 @@ cat > "$HOME/.local/state/browser-terminal-second/settings.json" <<'JSON'
 JSON
 python3 scripts/browser_terminal.py \
   --state-dir "$HOME/.local/state/browser-terminal-second" \
-  start --cwd "$HOME" --publish
+  open --cwd "$HOME"
 ```
 
 Use the same state directory for status, credentials, verification, styling,
@@ -123,6 +156,12 @@ Type normally to see an inline suggestion. Tab or Right Arrow accepts it without
 executing it. Enter executes the resulting command. When no suggestion is shown,
 Tab uses ordinary command/path/argument completion. Ctrl+R searches history.
 Suggestions may not appear immediately after a pasted block; continue typing.
+
+No new terminal is needed to refresh history. At the source Bash prompt, run
+`history -a` to flush commands still in that shell's memory. Shared ble.sh shells
+import persisted history; at an idle destination Bash prompt `history -n` imports
+it explicitly. Zsh uses a different history file/format. This does not recover
+unsaved history from another program or add shell suggestions to an agent chat.
 
 If ble.sh is missing:
 

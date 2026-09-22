@@ -1,9 +1,12 @@
 """Share a persistent Mac terminal through authenticated ttyd and Cloudflare."""
 
 import argparse
+from contextlib import contextmanager
 import base64
 import json
 import getpass
+import http.client
+import ipaddress
 import os
 from pathlib import Path
 import re
@@ -12,6 +15,7 @@ import shlex
 import shutil
 import signal
 import socket
+import ssl
 import subprocess
 import sys
 import time
@@ -30,9 +34,15 @@ def main():
     sub = parser.add_subparsers(dest='action', required=True)
     sub.add_parser('status')
     sub.add_parser('verify')
-    start = sub.add_parser('start')
-    start.add_argument('--cwd', type=Path, default=Path.cwd())
-    start.add_argument('--publish', action='store_true', help='Start the public, password-protected tunnel')
+    for name in ['open', 'start']:
+        command = sub.add_parser(name)
+        command.add_argument('--cwd', type=Path, default=Path.cwd())
+        command.add_argument('--wait', type=int, default=45, metavar='SECONDS')
+        if name == 'open':
+            command.add_argument('--new-window', action='store_true')
+            command.add_argument('--request-id', help='Reuse this ID when retrying the same new-window request')
+        else:
+            command.add_argument('--publish', action='store_true')
     style = sub.add_parser('style')
     style.add_argument('--font-size', type=int, default=14, choices=range(10, 25))
     sub.add_parser('stop', help='Stop remote access; keep tmux and agents running')
@@ -46,35 +56,184 @@ def main():
         print(json.dumps(status(state, config), indent=2))
     elif args.action == 'verify':
         verify_http(state, config)
-        verify_http(state, config, public=True)
-        verify_websocket(state)
-    elif args.action == 'stop':
-        stop_process(state, config, 'tunnel')
-        stop_process(state, config, 'ttyd')
-        print('Remote access stopped. The tmux session and its programs remain running.')
+        address, dns_source = public_address(state, timeout=5)
+        verify_http(state, config, public=True, address=address)
+        verify_websocket(state, address=address)
+        print('DNS verification source: ' + dns_source)
     else:
         prepare_state(state)
-        require_tools()
-        session_id = find_session(config['session'])
-        if args.action == 'start':
-            if session_id is None:
-                config['cwd'] = str(args.cwd.resolve())
-                session_id = create_session(config)
-        if session_id is None:
-            raise RuntimeError('Shared terminal is absent; run start first.')
-        apply_tmux_theme(session_id)
-        if args.action == 'style':
-            config['font_size'] = args.font_size
-        save_config(state, config)
-        ensure_credentials(state)
-        if args.action == 'style' or not owned_process(state, config, 'ttyd'):
-            restart_ttyd(state, config)
-        verify_http(state, config)
-        if args.action == 'start' and args.publish:
-            ensure_tunnel(state, config)
-            verify_http(state, config, public=True)
-            verify_websocket(state)
-        print(json.dumps(status(state, config), indent=2))
+        with operation_lock(state):
+            if args.action == 'stop':
+                # Close browser access even if the tunnel takes time to drain.
+                errors = []
+                for kind in ['ttyd', 'tunnel']:
+                    try:
+                        stop_process(state, config, kind)
+                    except RuntimeError as error:
+                        errors.append(str(error))
+                if errors:
+                    raise RuntimeError('; '.join(errors))
+                print('Remote access stopped. The tmux session and its programs remain running.')
+            elif args.action == 'style':
+                require_tools()
+                session = find_session(config['session'])
+                if session is None:
+                    raise RuntimeError('Shared terminal is absent; run open first.')
+                apply_tmux_theme(session)
+                config['font_size'] = args.font_size
+                save_config(state, config)
+                ensure_credentials(state)
+                restart_ttyd(state, config)
+                print(json.dumps(status(state, config), indent=2))
+            else:
+                if not 1 <= args.wait <= 120:
+                    parser.error('--wait must be between 1 and 120 seconds')
+                request_id = getattr(args, 'request_id', None)
+                if request_id and not re.fullmatch(r'[a-zA-Z0-9_-]{1,80}', request_id):
+                    parser.error('--request-id must contain 1-80 letters, digits, hyphens, or underscores')
+                result = open_terminal(
+                    state, config, args.cwd,
+                    publish=args.action == 'open' or args.publish,
+                    new_window=getattr(args, 'new_window', False),
+                    request_id=request_id, wait=args.wait)
+                print(json.dumps(result, indent=2))
+                return 2 if result['readiness'] == 'pending' else 0
+    return 0
+
+
+@contextmanager
+def operation_lock(state):
+    import fcntl
+    with (state / 'operation.lock').open('a') as lock:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            raise RuntimeError('Another terminal operation is in progress. Retry the same command after it finishes.') from None
+        try:
+            yield
+        finally:
+            fcntl.flock(lock, fcntl.LOCK_UN)
+
+
+def open_terminal(state, config, cwd, publish=True, new_window=False, request_id=None, wait=45):
+    started = time.monotonic()
+    require_tools()
+    cwd = Path(cwd).resolve()
+    if not cwd.is_dir():
+        raise ValueError('Working directory does not exist: ' + str(cwd))
+    session = find_session(config['session'])
+    created = session is None
+    if created:
+        config['cwd'] = str(cwd)
+        session = create_session(config)
+    apply_tmux_theme(session)
+    save_config(state, config)
+    ensure_credentials(state)
+    if not owned_process(state, config, 'ttyd'):
+        restart_ttyd(state, config)
+    try:
+        verify_http(state, config, quiet=True, timeout=2)
+    except OSError:
+        # A recorded listener can be alive but no longer accepting connections.
+        restart_ttyd(state, config)
+        verify_http(state, config, quiet=True, timeout=2)
+    window = None
+    if created and new_window:
+        window = run('tmux', 'display-message', '-p', '-t', session, '#{window_id}')
+        remember_window(state, request_id, window)
+    pending, dns_source = wait_for_public(state, config, wait) if publish else (None, None)
+    if pending is None and new_window and window is None:
+        window = requested_window(state, session, cwd, request_id)
+    result = status(state, config)
+    result.update(local_ready=True, readiness='pending' if pending else ('ready' if publish else 'local'),
+                  session_created=created, window_id=window, dns_source=dns_source,
+                  elapsed_seconds=round(time.monotonic() - started, 2))
+    if pending is None and dns_source == 'cloudflare':
+        result['notice'] = ('Public HTTPS and WebSocket checks passed using Cloudflare DNS. '
+                            'The host DNS resolver is still lagging; browsers using that resolver '
+                            'may need to wait for its cached failure to expire.')
+    if pending:
+        result.update(url=None, reason=pending,
+                      next_step='Retry the same open command and request ID. Keep the existing shell and tunnel.')
+    return result
+
+
+def requested_window(state, session, cwd, request_id):
+    path = state / 'window-requests.json'
+    requests = json.loads(path.read_text()) if path.exists() else {}
+    previous = requests.get(request_id) if request_id else None
+    windows = run('tmux', 'list-windows', '-t', session, '-F', '#{window_id}').splitlines()
+    if previous in windows:
+        run('tmux', 'select-window', '-t', previous)
+        return previous
+    window = run('tmux', 'new-window', '-P', '-F', '#{window_id}',
+                 '-t', session + ':', '-n', 'shell', '-c', str(cwd))
+    remember_window(state, request_id, window)
+    return window
+
+
+def remember_window(state, request_id, window):
+    if request_id:
+        path = state / 'window-requests.json'
+        requests = json.loads(path.read_text()) if path.exists() else {}
+        requests[request_id] = window
+        path.write_text(json.dumps(dict(list(requests.items())[-100:])) + '\n')
+
+
+def wait_for_public(state, config, timeout):
+    deadline = time.monotonic() + timeout
+    pid_path = state / 'tunnel.pid'
+    reused = (owned_process(state, config, 'tunnel') and pid_path.exists()
+              and time.time() - pid_path.stat().st_mtime > 120)
+    repair_after = time.monotonic() + min(10, timeout / 3)
+    repaired = False
+    announced = False
+    try:
+        ensure_tunnel(state, config, timeout=min(10, timeout))
+    except PublicPending:
+        pass
+    last_error = 'Waiting for a tunnel address.'
+    dns_source = None
+    while time.monotonic() < deadline:
+        try:
+            if not read_url(state) and not discover_tunnel_url(state):
+                raise PublicPending('Waiting for Cloudflare to assign a hostname.')
+            probe_timeout = min(3, max(0.1, deadline - time.monotonic()))
+            address, dns_source = public_address(state, timeout=probe_timeout)
+            verify_http(state, config, public=True, quiet=True, timeout=probe_timeout, address=address)
+            if time.monotonic() >= deadline:
+                break
+            verify_websocket(state, quiet=True, timeout=min(3, deadline - time.monotonic()), address=address)
+            return None, dns_source
+        except (PublicPending, OSError) as error:
+            reason = getattr(error, 'reason', error)
+            if isinstance(reason, ssl.SSLCertVerificationError):
+                raise RuntimeError('Public TLS certificate verification failed.') from None
+            last_error = str(error)
+        if not announced:
+            print('Waiting for public DNS and Cloudflare connectivity; keeping the shell running.', file=sys.stderr, flush=True)
+            announced = True
+        # Repair a stale existing tunnel once. A newly allocated hostname gets
+        # the full readiness window; repeatedly restarting it only delays DNS.
+        if reused and not repaired and time.monotonic() >= repair_after:
+            print('Replacing the unavailable managed tunnel once.', file=sys.stderr, flush=True)
+            stop_process(state, config, 'tunnel')
+            repaired = True
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                break
+            try:
+                ensure_tunnel(state, config, timeout=min(10, remaining))
+            except PublicPending as error:
+                last_error = str(error)
+        remaining = deadline - time.monotonic()
+        if remaining > 0:
+            time.sleep(min(1, remaining))
+    return last_error, dns_source
+
+
+class PublicPending(RuntimeError):
+    """A transient public DNS, edge, or tunnel-readiness failure."""
 
 
 def create_session(config):
@@ -128,7 +287,7 @@ def status(state, config):
         'session': config['session'], 'session_id': find_session(config['session']),
         'terminal_running': owned_process(state, config, 'ttyd'),
         'tunnel_running': owned_process(state, config, 'tunnel'),
-        'url': read_url(state), 'font_size': config['font_size'],
+        'url': read_url(state), 'font_size': config['font_size'], 'readiness': 'not_checked',
         'credentials_file': str(state / 'login.txt'),
         'local_attach': "tmux attach -t '=" + config['session'] + "'",
     }
@@ -162,6 +321,8 @@ def run(*args):
 def find_session(name):
     result = subprocess.run(['tmux', 'list-sessions', '-F', '#{session_id} #{session_name}'],
                             text=True, capture_output=True)
+    if result.returncode and any(word in result.stderr.lower() for word in ['operation not permitted', 'permission denied']):
+        raise PermissionError('tmux socket access requires elevated tool permissions')
     for line in result.stdout.splitlines():
         session_id, session_name = line.split(' ', 1)
         if session_name == name:
@@ -249,7 +410,17 @@ def stop_process(state, config, kind):
             path.unlink(missing_ok=True)
             return
         time.sleep(0.1)
-    raise RuntimeError('Process has not stopped; no replacement was started.')
+    # A second TERM ends cloudflared's graceful drain; only escalate a PID that
+    # still matches the exact managed executable and endpoint.
+    if owned_process(state, config, kind):
+        os.kill(pid, signal.SIGTERM)
+        time.sleep(0.2)
+    if owned_process(state, config, kind):
+        os.kill(pid, signal.SIGKILL)
+        time.sleep(0.2)
+    if owned_process(state, config, kind):
+        raise RuntimeError('Managed process did not stop.')
+    path.unlink(missing_ok=True)
 
 
 def spawn(state, kind, args):
@@ -298,22 +469,84 @@ def read_url(state):
     return url
 
 
-def ensure_tunnel(state, config):
-    if owned_process(state, config, 'tunnel'):
+def ensure_tunnel(state, config, timeout=40):
+    running = owned_process(state, config, 'tunnel')
+    if running and read_url(state):
         return
-    stop_process(state, config, 'tunnel')
-    (state / 'url.txt').unlink(missing_ok=True)
-    (state / 'tunnel.log').write_text('')
-    spawn(state, 'tunnel', [shutil.which('cloudflared'), 'tunnel', '--url',
-                           f'http://127.0.0.1:{config["port"]}', '--no-autoupdate'])
-    for _ in range(40):
-        log = (state / 'tunnel.log').read_text()
-        urls = re.findall(r'https://[a-z0-9-]+\.trycloudflare\.com', log)
-        if urls:
-            (state / 'url.txt').write_text(urls[-1] + '\n')
+    if not running:
+        stop_process(state, config, 'tunnel')
+        (state / 'url.txt').unlink(missing_ok=True)
+        (state / 'tunnel.log').write_text('')
+        spawn(state, 'tunnel', [shutil.which('cloudflared'), 'tunnel', '--url',
+                               f'http://127.0.0.1:{config["port"]}', '--no-autoupdate',
+                               '--grace-period', '1s'])
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if discover_tunnel_url(state):
             return
-        time.sleep(1)
-    raise RuntimeError('Tunnel address not available after 40s; inspect tunnel.log.')
+        if not owned_process(state, config, 'tunnel'):
+            raise PublicPending('Cloudflared exited before assigning a URL; inspect tunnel.log.')
+        time.sleep(min(0.2, max(0, deadline - time.monotonic())))
+    raise PublicPending('Cloudflare has not assigned a URL yet; the managed process is preserved.')
+
+
+def discover_tunnel_url(state):
+    path = state / 'tunnel.log'
+    log = path.read_text() if path.exists() else ''
+    urls = re.findall(r'https://[a-z0-9-]+\.trycloudflare\.com', log)
+    if urls:
+        (state / 'url.txt').write_text(urls[-1] + '\n')
+        return urls[-1]
+    return None
+
+
+def public_address(state, timeout):
+    """Diagnose stale host DNS without modifying system/browser DNS settings."""
+    url = read_url(state)
+    if not url:
+        raise PublicPending('Waiting for a tunnel hostname.')
+    host = url.split('://', 1)[1]
+    pid_path = state / 'tunnel.pid'
+    fresh = pid_path.exists() and time.time() - pid_path.stat().st_mtime < 120
+    # Do not seed a router's negative cache by asking before public DNS exists.
+    public_ip = cloudflare_address(host, timeout) if fresh else None
+    try:
+        answers = socket.getaddrinfo(host, 443, type=socket.SOCK_STREAM)
+        return answers[0][4][0], 'system'
+    except socket.gaierror:
+        return public_ip or cloudflare_address(host, timeout), 'cloudflare'
+
+
+def cloudflare_address(host, timeout):
+    request = urllib.request.Request(
+        'https://cloudflare-dns.com/dns-query?name=' + host + '&type=A',
+        headers={'Accept': 'application/dns-json'})
+    # Only the public hostname goes to the DNS resolver, never credentials.
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect)
+    with opener.open(request, timeout=timeout) as response:
+        data = json.load(response)
+    if data.get('Status') == 0:
+        for answer in data.get('Answer', []):
+            if answer.get('type') == 1:
+                address = ipaddress.ip_address(answer['data'])
+                if address.version == 4 and address.is_global:
+                    return str(address)
+    raise PublicPending('The hostname is not yet available in public DNS.')
+
+
+class ResolvedHTTPSConnection(http.client.HTTPSConnection):
+    """Connect to a resolved address while retaining hostname/certificate checks."""
+    def __init__(self, host, address, timeout):
+        super().__init__(host, timeout=timeout, context=ssl.create_default_context())
+        self.address = address
+
+    def connect(self):
+        raw = socket.create_connection((self.address, 443), timeout=self.timeout)
+        try:
+            self.sock = self._context.wrap_socket(raw, server_hostname=self.host)
+        except Exception:
+            raw.close()
+            raise
 
 
 class NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -321,27 +554,35 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
         return None
 
 
-def verify_http(state, config, public=False, quiet=False):
+def verify_http(state, config, public=False, quiet=False, timeout=10, address=None):
     url = read_url(state) if public else f'http://127.0.0.1:{config["port"]}'
     if not url:
         raise RuntimeError('No public tunnel URL is recorded.')
     auth = 'Basic ' + base64.b64encode(credentials(state).encode()).decode()
-    opener = urllib.request.build_opener(NoRedirect)
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect)
     for name, headers, expected in [('anonymous', {}, 401),
                                     ('authenticated', {'Authorization': auth}, 200)]:
-        try:
-            with opener.open(urllib.request.Request(url, headers=headers), timeout=10) as response:
-                code = response.status
-        except urllib.error.HTTPError as error:
-            code = error.code
+        if public and address:
+            connection = ResolvedHTTPSConnection(url.split('://', 1)[1], address, timeout)
+            try:
+                connection.request('GET', '/', headers=headers)
+                code = connection.getresponse().status
+            finally:
+                connection.close()
+        else:
+            try:
+                with opener.open(urllib.request.Request(url, headers=headers), timeout=timeout) as response:
+                    code = response.status
+            except urllib.error.HTTPError as error:
+                code = error.code
         if code != expected:
-            raise RuntimeError(f'{name}: HTTP {code}, expected {expected}')
+            error_type = PublicPending if public and (code >= 500 or code in (408, 429)) else RuntimeError
+            raise error_type(f'{name}: HTTP {code}, expected {expected}')
         if not quiet:
             print(f'{"Public" if public else "Local"} {name}: HTTP {code}')
 
 
-def verify_websocket(state):
-    import ssl
+def verify_websocket(state, quiet=False, timeout=10, address=None):
     url = read_url(state)
     if not url:
         raise RuntimeError('No public tunnel URL is recorded.')
@@ -352,7 +593,7 @@ def verify_websocket(state):
                f'Upgrade: websocket\r\nConnection: Upgrade\r\n'
                f'Sec-WebSocket-Key: {key}\r\nSec-WebSocket-Version: 13\r\n'
                f'Sec-WebSocket-Protocol: tty\r\nAuthorization: Basic {auth}\r\n\r\n')
-    with socket.create_connection((host, 443), timeout=10) as raw:
+    with socket.create_connection((address or host, 443), timeout=timeout) as raw:
         with ssl.create_default_context().wrap_socket(raw, server_hostname=host) as conn:
             conn.sendall(request.encode())
             response = b''
@@ -362,13 +603,19 @@ def verify_websocket(state):
                     break
                 response += chunk
     if not response.startswith(b'HTTP/1.1 101 '):
-        raise RuntimeError('Public WebSocket upgrade failed.')
-    print('Public authenticated WebSocket: HTTP 101')
+        parts = response.split(b' ', 2)
+        retryable = len(parts) > 1 and parts[1].isdigit() and int(parts[1]) >= 500
+        error_type = PublicPending if retryable else RuntimeError
+        raise error_type('Public WebSocket upgrade failed.')
+    if not quiet:
+        print('Public authenticated WebSocket: HTTP 101')
 
 
 if __name__ == '__main__':
     try:
-        main()
+        raise SystemExit(main())
+    except PermissionError:
+        raise SystemExit('Run this host command with login=false and elevated tool permissions; ps/tmux access is sandbox-blocked.')
     except (OSError, ValueError, RuntimeError, subprocess.CalledProcessError) as error:
         # Do not print subprocess argv: ttyd argv contains the password.
         message = 'Subprocess failed; inspect local logs.' if isinstance(error, subprocess.CalledProcessError) else str(error)

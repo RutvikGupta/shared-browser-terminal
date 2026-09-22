@@ -53,14 +53,28 @@ custom `CODEX_HOME`, install under its `skills/` directory and adjust paths belo
 Start a shell in your desired directory and publish it:
 
 ```bash
-python3 scripts/browser_terminal.py start --cwd "$HOME" --publish
+python3 scripts/browser_terminal.py open --cwd "$HOME"
 ```
 
-The command prints a random `https://…trycloudflare.com` URL and checks that:
+The command reuses a healthy terminal or creates and verifies one. It prints a random `https://…trycloudflare.com` URL and checks that:
 
 1. Anonymous access returns **401**.
 2. Authenticated access returns **200**.
 3. The authenticated WebSocket upgrades with **101**.
+
+Only `readiness: ready` means the public checks passed. Temporary DNS/edge
+failures are retried within a 45-second readiness budget; an unavailable old
+tunnel is replaced at most once. A pending result exits with code 2 and preserves
+the shell. Cloudflare DNS can verify a link when the host resolver lags; the
+result includes a notice because browser DNS may still be affected.
+
+To create another shell without interrupting an agent:
+
+```bash
+python3 scripts/browser_terminal.py open --cwd "$HOME" --new-window --request-id my-next-shell
+```
+
+Use a different request ID for each new shell; repeat the same ID when retrying.
 
 View your generated login locally:
 
@@ -153,8 +167,9 @@ Or:
 
 > Reconnect my browser terminal.
 
-The skill tells the agent to reuse an existing terminal, preserve running work,
-verify authentication, and keep runtime data out of project repositories.
+The skill uses one `open` command with a non-login host shell, preserving running
+work and keeping runtime data outside project repositories. It does not require
+an agent to inspect code or run a separate status/verify sequence before startup.
 
 This shares a **terminal process**, not an existing desktop Codex conversation.
 Starting a second `codex resume` for a conversation open in another app can trigger
