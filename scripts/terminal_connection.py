@@ -14,6 +14,8 @@ import sys
 def connection_command(args):
     if len(args) == 1:
         return ['tmux', 'attach', '-t', '=' + args[0]]
+    if len(args) == 2 and args[1] == 'scroll-controls':
+        return [sys.executable, str(Path(__file__).with_name('scroll_controls.py')), args[0]]
     if len(args) == 2 and args[1] == 'upload-stream':
         return [sys.executable, str(Path(__file__).with_name('upload_receiver.py'))]
     if len(args) == 2 and args[1] == 'upload':

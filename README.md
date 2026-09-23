@@ -109,7 +109,8 @@ scripts from a normal checkout without installing a Codex skill.
 | Open a web URL in a new browser tab | Command-click the link |
 | Add a newline in the Codex composer | Shift+Enter |
 | Run the accepted/typed command | Enter |
-| Scroll terminal output | Mouse wheel or trackpad |
+| Scroll terminal output | Mouse wheel, trackpad, or drag the right scrollbar |
+| Return to live output | Bottom-right down-arrow button |
 | Open tmux history explicitly | Ctrl+B, then `[` |
 | Leave tmux history | Escape (or `q` if using a vi copy-mode keymap) |
 | Redraw an idle shell without deleting typed input | Ctrl+L |
@@ -134,13 +135,12 @@ python3 scripts/browser_terminal.py stop
 
 ## Upload documents
 
-Refresh the terminal page after upgrading. Click **↑ Upload → Choose files** and
-select multiple files. Each file keeps its own progress bar, acknowledged byte
-count, status, and saved path. Completed rows remain visible until you reload the
+Refresh the terminal page after upgrading. Click **↑ Upload → Browse**, or drop files into the dialog.
+Each file keeps a compact row with its name, size, progress, and cancel/retry
+action. Completed rows remain visible until you reload the
 page; closing and reopening the dialog keeps the list.
 
-Up to **three files upload concurrently** by default. **Simultaneous uploads** can
-be set to 1, 2, or 3. Parallel connections can reduce waiting on network round
+Up to **three files upload concurrently**, with no setting to manage. Parallel connections can reduce waiting on network round
 trips, but share your network and disk bandwidth; higher concurrency is not a
 guarantee of higher throughput. Progress advances when the Mac acknowledges
 written bytes, and a file becomes Uploaded only after it is fully saved.
@@ -151,9 +151,8 @@ selecting the files again. Each file uses its own unique folder under
 `~/Downloads/terminal-uploads/`, avoiding filename collisions.
 
 Once all listed files succeed, their quoted paths are inserted into terminal
-input once, without clearing existing text or sending Enter. Uncheck **Insert
-completed paths** to opt out. The dialog stays open so you can review every file;
-Close returns focus to your terminal. Uploads use independent authenticated
+input once, without clearing existing text or sending Enter. Uncheck **Insert paths** to opt out. The dialog closes automatically after all listed files succeed and returns
+focus to your terminal. Reopen Upload to review the list; failures stay open for retry. Uploads use independent authenticated
 connections through the same ttyd/Cloudflare URL and password, without another
 server or account. The button uses the browser's standard multi-file picker.
 

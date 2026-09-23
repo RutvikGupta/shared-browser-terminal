@@ -58,6 +58,9 @@ terminal.restart_ttyd(state,config)
     await page.waitForFunction(()=>window.term?.buffer.active.getLine(window.term.buffer.active.viewportY)?.translateToString().includes('Copy sample'));
     await page.evaluate(()=>{
       window.term.paste('existing draft');
+      window.savedPaths=[];
+      const upload=window.sharedTerminalUpload;
+      window.sharedTerminalUpload=async(...args)=>{const path=await upload(...args);window.savedPaths.push(path);return path;};
       window.maxUploads=0;window.sawPartial=false;window.rowCounts=[];
       window.sampler=setInterval(()=>{
         const rows=[...document.querySelectorAll('.sbt-file')];
@@ -68,12 +71,22 @@ terminal.restart_ttyd(state,config)
     });
     await page.getByRole('button',{name:'Upload documents',exact:true}).click();
     assert(await page.locator('#sbt-file-input').getAttribute('multiple')!==null);
-    await page.locator('#sbt-file-input').setInputFiles(files);
+    assert.equal(await page.locator('#sbt-concurrency').count(),0,'parallelism is fixed without a setting');
+    await page.screenshot({path:path.join(os.tmpdir(),'sbt-upload-empty.png')});
+    await page.locator('#sbt-file-input').setInputFiles(files.slice(0,4));
+    const dropped=await page.evaluateHandle(()=>{
+      const data=new DataTransfer();data.items.add(new File(['final document'],'last.txt',{type:'text/plain'}));return data;
+    });
+    await page.locator('#sbt-drop').dispatchEvent('drop',{dataTransfer:dropped});
     await page.waitForFunction(()=>document.querySelectorAll('.sbt-file[data-state="complete"]').length===5,{},{timeout:30000});
-    const paths=await page.locator('.sbt-file code').allTextContents();
+    const saved=await page.evaluate(()=>window.savedPaths);
+    const paths=files.map(file=>saved.find(p=>path.basename(p)===file.name));
     paths.forEach(p=>receivedDirs.add(path.dirname(p)));
     for(let i=0;i<files.length;i++)assert.deepEqual(fs.readFileSync(paths[i]),files[i].buffer,'exact binary content');
-    assert(await page.locator('#sbt-dialog').isVisible(),'completed list remains visible');
+    await page.locator('#sbt-dialog').waitFor({state:'hidden'});
+    await page.waitForFunction(()=>window.term.element.contains(document.activeElement));
+    await page.getByRole('button',{name:'Upload documents',exact:true}).click();
+    assert(await page.locator('#sbt-dialog').isVisible(),'reopening keeps completed history visible');
     assert.equal(await page.locator('.sbt-file').count(),5,'all selected files retain a row');
     const observation=await page.evaluate(()=>({max:window.maxUploads,partial:window.sawPartial}));
     assert(observation.max>=2&&observation.max<=3,'transfers overlap within the configured limit');
@@ -87,11 +100,10 @@ terminal.restart_ttyd(state,config)
     const more=[{name:'bad\nname.txt',buffer:Buffer.from('bad'),mimeType:'text/plain'},files[4]];
     await page.locator('#sbt-file-input').setInputFiles(more);
     await page.waitForFunction(()=>document.querySelectorAll('.sbt-file[data-state="failed"]').length===1&&document.querySelectorAll('.sbt-file[data-state="complete"]').length===6);
-    const duplicate=await page.locator('.sbt-file code').nth(6).textContent();
+    const duplicate=await page.evaluate(()=>window.savedPaths[5]);
     receivedDirs.add(path.dirname(duplicate));assert.notEqual(duplicate,paths[4]);
     assert.equal(fs.readFileSync(input,'utf8'),expected,'opt-out sends no extra input');
     // Keep the persistent completed rows while a new file is canceled and retried.
-    await page.locator('#sbt-concurrency').selectOption('1');
     await page.locator('#sbt-file-input').setInputFiles([files[0]]);
     const canceled=page.locator('.sbt-file').nth(7);
     await page.waitForFunction(()=>document.querySelectorAll('.sbt-file')[7].dataset.state==='uploading');
@@ -100,7 +112,7 @@ terminal.restart_ttyd(state,config)
     assert.equal(await page.locator('.sbt-file').count(),8);
     await canceled.getByRole('button',{name:'Retry',exact:true}).click();
     await page.waitForFunction(()=>document.querySelectorAll('.sbt-file')[7].dataset.state==='complete',{},{timeout:30000});
-    const retried=await canceled.locator('code').textContent();receivedDirs.add(path.dirname(retried));
+    const retried=await page.evaluate(()=>window.savedPaths[6]);receivedDirs.add(path.dirname(retried));
     assert.deepEqual(fs.readFileSync(retried),files[0].buffer);
     assert.equal(fs.readFileSync(input,'utf8'),expected);
     await page.getByRole('button',{name:'Close upload dialog'}).click();
@@ -126,7 +138,7 @@ terminal.restart_ttyd(state,config)
     await page.evaluate(()=>{File.prototype.slice=window.normalSlice;});
     await page.locator('.sbt-file').nth(8).getByRole('button',{name:'Retry',exact:true}).click();
     await page.waitForFunction(()=>document.querySelectorAll('.sbt-file')[8].dataset.state==='complete');
-    const recovered=await page.locator('.sbt-file').nth(8).locator('code').textContent();
+    const recovered=await page.evaluate(()=>window.savedPaths[7]);
     receivedDirs.add(path.dirname(recovered));assert.equal(fs.readFileSync(recovered,'utf8'),'recover me');
     assert.equal(fs.readFileSync(input,'utf8'),expected);
     await page.screenshot({path:path.join(os.tmpdir(),'sbt-upload-progress.png')});

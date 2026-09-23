@@ -15,7 +15,7 @@ def write_terminal_page(state, executable):
     page = builtin_page(executable)
     assets = Path(__file__).resolve().parent.parent / 'assets'
     controls = ''.join((assets / name).read_text() for name in
-                       ['selection-controls.html', 'keyboard-controls.html', 'upload-transport.html', 'upload-controls.html'])
+                       ['selection-controls.html', 'keyboard-controls.html', 'scroll-controls.html', 'upload-transport.html', 'upload-controls.html'])
     return write_page(state / 'index.html', page, controls)
 
 

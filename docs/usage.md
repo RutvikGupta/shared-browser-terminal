@@ -130,6 +130,13 @@ python3 scripts/browser_terminal.py style --font-size 15
 The accepted font range is 10–24px. Styling restarts ttyd, so browser clients briefly
 disconnect, but it does not restart the shell, agent, or tunnel. Refresh afterward.
 
+Drag the **right scrollbar** to browse the active pane's tmux history. The
+**bottom-right down-arrow button** returns to live output and restores keyboard
+focus. The controls operate on tmux copy mode through a separate authenticated
+connection; they never send Escape or other input to a running agent. They follow
+the active pane when switching windows or splits. Other tmux menus are left alone.
+The scrollbar also supports arrow keys, Page Up/Down, Home, and End when focused.
+
 Mouse mode enables scrollback. If a program consumes mouse events, press Ctrl+B,
 then `[` to enter tmux copy mode directly. Escape leaves the default copy mode;
 `q` works with a vi copy-mode keymap.
@@ -241,14 +248,14 @@ inside a Codex/Claude chat composer.
 
 ## Upload documents
 
-Click **↑ Upload → Choose files**. Use ⌘-click on Mac, Ctrl-click on Windows/Linux,
-or Shift-click for a range. All files appear in one persistent list, with queued,
-connecting, uploading, uploaded, canceled, or failed status. Each row shows its
-own progress bar, acknowledged bytes, and saved path. Completed rows stay visible
+Click **↑ Upload → Browse**, or drag files into the drop area. Use ⌘-click on Mac,
+Ctrl-click on Windows/Linux, or Shift-click for a range in the file picker. All files appear in one persistent list, with queued,
+connecting, uploading, uploaded, canceled, or failed status. Each compact row shows its
+file name, size, progress bar, and cancel/retry action. Completed rows stay visible
 while other files upload, and survive closing/reopening the dialog (until page
 reload). Closing returns keyboard focus to the terminal.
 
-**Simultaneous uploads** defaults to 3; choose 1 or 2 to reduce concurrency. Each
+Uploads always use at most **3 simultaneous connections**, without a UI setting. Each
 file uses a separate authenticated WebSocket on the existing terminal URL. The
 receiver saves into its own unique folder under `~/Downloads/terminal-uploads/`.
 This can reduce per-file round-trip waiting, but all connections share bandwidth
@@ -263,7 +270,7 @@ disconnect/cancellation or a receiver timeout. A force-killed host process or
 power loss can leave a hidden partial file.
 
 **Cancel** affects only its file; **Retry** restarts only a failed or canceled
-file. **Retry failed files** handles all failed/canceled rows. Completed files
+file. **Retry failed** handles all failed/canceled rows. Completed files
 are not retransmitted. Closing the dialog cancels queued/active transfers;
 reopening retains the selected File objects so Retry works without reselection.
 The main terminal and its agent remain connected throughout.
@@ -275,7 +282,8 @@ hosting Mac is asleep/offline, it must become reachable before retry can work.
 
 When every listed file succeeds, completed paths not already inserted are pasted
 at the current terminal input cursor. Existing draft text is preserved; Enter is
-never sent. The dialog remains open for review. Uncheck **Insert completed paths**
+never sent. The dialog closes automatically once all listed files succeed; reopen Upload to
+review retained rows. Failures keep the dialog open for retry. Uncheck **Insert paths**
 to opt out. A failed/canceled file prevents automatic batch insertion until it is
 successfully retried. Filenames containing path separators or control characters
 are rejected; spaces, Unicode, apostrophes, and shell metacharacters are preserved

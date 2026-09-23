@@ -13,6 +13,13 @@ class ConnectionTests(unittest.TestCase):
     def test_normal_connection_attaches_exact_session(self):
         self.assertEqual(connection_command(['example']), ['tmux', 'attach', '-t', '=example'])
 
+    def test_scroll_controls_cannot_choose_a_command(self):
+        result = connection_command(['example', 'scroll-controls'])
+        self.assertEqual(Path(result[1]).name, 'scroll_controls.py')
+        self.assertEqual(result[2], 'example')
+        with self.assertRaises(ValueError):
+            connection_command(['example', 'scroll-controls', 'kill-session'])
+
     def test_stream_upload_uses_only_the_fixed_receiver(self):
         result = connection_command(['example', 'upload-stream'])
         self.assertEqual(Path(result[1]).name, 'upload_receiver.py')

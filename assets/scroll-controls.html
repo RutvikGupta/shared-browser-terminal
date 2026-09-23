@@ -1,0 +1,126 @@
+<style id="shared-terminal-scroll-style">
+body.sbt-scrolling { background: #121212; }
+body.sbt-scrolling #terminal-container { margin-right: 18px; }
+body.sbt-scrolling .xterm-viewport { scrollbar-width: none; }
+body.sbt-scrolling .xterm-viewport::-webkit-scrollbar { display: none; }
+#sbt-scrollbar { position: fixed; top: 4px; right: 2px; bottom: 48px; width: 12px; border-radius: 6px; background: #1e1e1e; z-index: 90; cursor: pointer; touch-action: none; }
+#sbt-scrollbar:focus-visible { outline: 2px solid #3780e9; }
+#sbt-scroll-thumb { position: absolute; top: 0; left: 2px; width: 8px; min-height: 24px; border-radius: 5px; background: #666; pointer-events: none; }
+#sbt-scrollbar:hover #sbt-scroll-thumb { background: #999; }
+#sbt-bottom { position: fixed; right: 3px; bottom: 6px; width: 32px; height: 32px; border-radius: 7px; border: 1px solid #444; background: #202020; color: #bfc5c3; font: 24px system-ui,sans-serif; cursor: pointer; z-index: 91; }
+#sbt-bottom:hover { background: #333; color: #faf9f6; }
+#sbt-bottom:focus-visible { outline: 2px solid #3780e9; }
+#sbt-bottom:disabled { opacity: .5; cursor: default; }
+</style>
+<script id="shared-terminal-scroll-script">
+(() => {
+  function setup() {
+    if (new URL(location.href).searchParams.has('arg')) return;
+    document.body.classList.add('sbt-scrolling');
+    const bar = document.createElement('div'), thumb = document.createElement('div'), bottom = document.createElement('button');
+    bar.id = 'sbt-scrollbar'; bar.tabIndex = 0; bar.setAttribute('role', 'scrollbar');
+    bar.setAttribute('aria-label', 'Terminal history'); bar.setAttribute('aria-orientation', 'vertical');
+    bar.setAttribute('aria-controls', 'terminal-container');
+    thumb.id = 'sbt-scroll-thumb'; bar.append(thumb);
+    bottom.id = 'sbt-bottom'; bottom.type = 'button'; bottom.textContent = '⤓';
+    bottom.setAttribute('aria-label', 'Scroll to bottom'); bottom.title = 'Scroll to bottom';
+    document.body.append(bar, bottom);
+    let socket, state, busy = false, pending, dragging = null, stopped = false, reconnect, timeout;
+    const encoder = new TextEncoder();
+    function render(position) {
+      const history = state?.history || 0, height = state?.height || 1;
+      const track = bar.clientHeight, size = Math.min(track, Math.max(24, track * height / (history + height)));
+      const value = position ?? Math.max(0, history - (state?.offset || 0));
+      thumb.style.height = size + 'px';
+      if (!dragging || position !== undefined) thumb.style.top = (history ? (track - size) * value / history : 0) + 'px';
+      bar.setAttribute('aria-valuemin', '0'); bar.setAttribute('aria-valuemax', String(history));
+      bar.setAttribute('aria-valuenow', String(value));
+      bar.setAttribute('aria-disabled', String(!state || !history || !['', 'copy-mode'].includes(state.mode)));
+      bottom.disabled = !state;
+      bar.title = state ? 'Drag to scroll terminal history' : 'Connecting scroll controls…';
+    }
+    function request(action) { pending = action; flush(); }
+    function flush() {
+      if (busy || !pending || socket?.readyState !== WebSocket.OPEN || !state) return;
+      const command = pending; pending = null; busy = true;
+      socket.send(encoder.encode('0' + JSON.stringify(command) + '\n'));
+      clearTimeout(timeout); timeout = setTimeout(() => socket?.close(), 8000);
+    }
+    async function connect() {
+      if (stopped) return;
+      try {
+        const response = await fetch(new URL('token', location.href), {credentials: 'same-origin', cache: 'no-store', signal: AbortSignal.timeout(10000)});
+        if (!response.ok) throw new Error('Authentication required');
+        const {token} = await response.json();
+        if (stopped) return;
+        const url = new URL('ws', location.href); url.protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+        url.search = '?arg=scroll-controls';
+        const current = new WebSocket(url, ['tty']); socket = current; current.binaryType = 'arraybuffer';
+        const decoder = new TextDecoder(); let buffer = '';
+        current.addEventListener('open', () => current.send(encoder.encode(JSON.stringify({AuthToken: token, columns: 80, rows: 24}))));
+        current.addEventListener('message', event => {
+          try {
+            const bytes = new Uint8Array(event.data); if (bytes[0] !== 48) return;
+            buffer += decoder.decode(bytes.subarray(1), {stream: true});
+            let end;
+            while ((end = buffer.indexOf('\n')) !== -1) {
+              const line = buffer.slice(0, end); buffer = buffer.slice(end + 1);
+              if (!line.trim()) continue;
+              const message = JSON.parse(line);
+              clearTimeout(timeout); busy = false;
+              if (message.type === 'state') { state = message; render(); flush(); }
+            }
+            if (buffer.length > 8192) current.close();
+          } catch { current.close(); }
+        });
+        current.addEventListener('close', () => {
+          clearTimeout(timeout); state = null; busy = false; pending = null; render();
+          if (!stopped) reconnect = setTimeout(connect, 5000);
+        });
+        timeout = setTimeout(() => current.close(), 10000);
+      } catch { if (!stopped) reconnect = setTimeout(connect, 5000); }
+    }
+    function move(event) {
+      if (bar.getAttribute('aria-disabled') === 'true') return;
+      const rect = bar.getBoundingClientRect(), room = bar.clientHeight - thumb.offsetHeight;
+      const fraction = room > 0 ? Math.max(0, Math.min(1, (event.clientY - rect.top - dragging) / room)) : 1;
+      const position = Math.round(fraction * state.history);
+      render(position); request({action: 'scroll', pane: state.pane, position});
+    }
+    bar.addEventListener('pointerdown', event => {
+      if (event.button !== 0 || bar.getAttribute('aria-disabled') === 'true') return;
+      event.preventDefault(); bar.focus();
+      const rect = thumb.getBoundingClientRect();
+      dragging = event.clientY >= rect.top && event.clientY <= rect.bottom ? event.clientY - rect.top : rect.height / 2;
+      bar.setPointerCapture(event.pointerId); move(event);
+    });
+    bar.addEventListener('pointermove', event => { if (dragging !== null) move(event); });
+    bar.addEventListener('pointerup', event => { if (dragging !== null) move(event); dragging = null; });
+    bar.addEventListener('lostpointercapture', () => { dragging = null; });
+    bar.addEventListener('keydown', event => {
+      if (!state) return;
+      const changes = {ArrowUp: -1, ArrowDown: 1, PageUp: -state.height, PageDown: state.height};
+      let position = state.history - state.offset;
+      if (event.key === 'Home') position = 0;
+      else if (event.key === 'End') position = state.history;
+      else if (event.key in changes) position += changes[event.key];
+      else return;
+      event.preventDefault(); request({action: 'scroll', pane: state.pane, position: Math.max(0, Math.min(state.history, position))});
+    });
+    bottom.addEventListener('click', () => {
+      if (state) request({action: 'bottom', pane: state.pane});
+      window.term?.scrollToBottom(); window.term?.focus();
+    });
+    const poll = setInterval(() => {
+      if (!document.hidden && state && !busy && !pending && dragging === null) request({action: 'status'});
+    }, 750);
+    window.addEventListener('resize', () => render());
+    window.addEventListener('pagehide', () => { stopped = true; clearInterval(poll); clearTimeout(timeout); clearTimeout(reconnect); socket?.close(); }, {once: true});
+    render(); connect();
+    // The margin reserves room for the scrollbar; refit an already-open terminal.
+    window.term?.fit?.();
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', setup, {once: true});
+  else setup();
+})();
+</script>

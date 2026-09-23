@@ -145,7 +145,29 @@ terminal.restart_ttyd(state,config)
     }
     assert.equal(copying,'1','wheel must still enter tmux scrollback');
     assert(await page.getByRole('button',{name:'Upload documents',exact:true}).isVisible());
-    execFileSync('tmux',['send-keys','-X','-t','selection-test:0.0','cancel'],{env});
+    const rawBeforeScroll=fs.readFileSync(path.join(state,'input.bin'));
+    const scrollbar=page.getByRole('scrollbar',{name:'Terminal history'});
+    await scrollbar.waitFor();
+    await page.waitForFunction(()=>Number(document.querySelector('#sbt-scrollbar').getAttribute('aria-valuemax'))>0);
+    const bounds=await scrollbar.boundingBox();
+    await page.mouse.click(bounds.x+bounds.width/2,bounds.y+4);
+    await page.waitForFunction(()=>Number(document.querySelector('#sbt-scrollbar').getAttribute('aria-valuenow'))<5);
+    assert.equal(execFileSync('tmux',['display-message','-p','-t','selection-test:0.0','#{pane_in_mode}'],{env,encoding:'utf8'}).trim(),'1','scrollbar accesses tmux history');
+    // Drag down, then jump all the way to live output.
+    await page.mouse.move(bounds.x+bounds.width/2,bounds.y+8);await page.mouse.down();
+    await page.mouse.move(bounds.x+bounds.width/2,bounds.y+bounds.height*0.6,{steps:8});await page.mouse.up();
+    await page.waitForFunction(()=>Number(document.querySelector('#sbt-scrollbar').getAttribute('aria-valuenow'))>5);
+    await page.getByRole('button',{name:'Scroll to bottom',exact:true}).click();
+    for(let i=0;i<100;i++){
+      if(execFileSync('tmux',['display-message','-p','-t','selection-test:0.0','#{pane_in_mode}'],{env,encoding:'utf8'}).trim()==='0')break;
+      await page.waitForTimeout(20);
+    }
+    assert.equal(execFileSync('tmux',['display-message','-p','-t','selection-test:0.0','#{pane_in_mode}'],{env,encoding:'utf8'}).trim(),'0','bottom button leaves copy mode');
+    await page.getByRole('button',{name:'Scroll to bottom',exact:true}).click();
+    assert.deepEqual(fs.readFileSync(path.join(state,'input.bin')),rawBeforeScroll,'scroll controls never send program input, even when already at bottom');
+    await page.screenshot({path:path.join(os.tmpdir(),'sbt-scroll-controls.png')});
+    console.log('PASS: visible scrollbar clicks/drags tmux history; bottom button returns to live output without sending input.');
+
     // Sample through real redraws and then idle, without any keyboard input.
     await page.evaluate(() => {
       window.cursorSamples=[];

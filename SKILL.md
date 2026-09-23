@@ -64,7 +64,8 @@ publish an old unauthenticated listener such as port 7681.
 ## Defaults and boundaries
 
 - Warp **Phenomenon** palette, **14px**, line height **1.0**, hidden tmux status
-  bar, a steady cursor, trackpad/wheel scrolling, 50,000 lines of scrollback
+  bar, a steady cursor, trackpad/wheel scrolling, a right scrollbar, a
+  bottom-right jump-to-bottom button, and 50,000 lines of scrollback
   for new panes. The browser does not hide the caret while idle or during
   output; applications retain control of their own cursor visibility.
 - Drag to highlight text, double-click a word, or triple-click a whole line
@@ -79,13 +80,16 @@ publish an old unauthenticated listener such as port 7681.
   **Ctrl+R** searches history. New windows/splits inherit this configuration.
   Existing local shells must flush history before other shells can import it;
   a new terminal is not required. Details: [history and completion](docs/usage.md#suggestions-and-completion).
-- **↑ Upload → Choose files** supports multiple files, up to **3 concurrent
-  transfers** (adjustable 1–3), and persistent per-file progress/status/path rows.
+- **↑ Upload → Browse**, or drop files into the minimal upload dialog. It uses
+  **3 concurrent transfers**, with no concurrency selector. Each file keeps a
+  compact name/size/progress row and cancel/retry action; no explanatory
+  paragraphs or saved-path details are shown. Keep the UI minimal.
   Bytes reflect host acknowledgements, and Uploaded requires a confirmed save.
   Each file goes under its own `~/Downloads/terminal-uploads/upload-…/` folder
   through a separate authenticated connection on the same URL. Retry/cancel
   affects individual files; completed files are retained, not retransmitted.
-  The dialog stays open after completion. Closing cancels unfinished transfers,
+  The dialog closes automatically when all files succeed; failures stay open.
+  Closing manually cancels unfinished transfers,
   and reopening preserves the list until page reload. Once all listed files
   succeed, quoted paths are inserted once without Enter or clearing draft text;
   the checkbox opts out. Startup retries once before a receiver accepts a file;

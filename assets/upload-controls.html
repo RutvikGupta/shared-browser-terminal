@@ -1,23 +1,29 @@
 <style id="shared-terminal-upload-style">
-.sbt-button { font: 600 13px system-ui, sans-serif; color: #faf9f6; background: #202a38; border: 1px solid #3780e9; border-radius: 8px; padding: 9px 14px; cursor: pointer; }
+.sbt-button { font: 600 13px system-ui, sans-serif; color: #faf9f6; background: #202a38; border: 1px solid #3780e9; border-radius: 8px; padding: 9px 16px; cursor: pointer; }
 .sbt-button:hover { background: #2e5d9e; }
-.sbt-button:focus-visible { outline: 2px solid #faf9f6; outline-offset: 3px; }
-.sbt-button:disabled { opacity: .55; cursor: default; }
-#sbt-upload { position: fixed; right: 16px; top: 12px; z-index: 100; }
-#sbt-dialog { box-sizing: border-box; width: min(800px, 94vw); max-height: 90vh; overflow: auto; padding: 20px; border: 1px solid #566578; border-radius: 12px; background: #121212; color: #faf9f6; font: 14px system-ui, sans-serif; }
-#sbt-dialog::backdrop { background: rgb(0 0 0 / 65%); }
-#sbt-dialog header, .sbt-actions { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
-#sbt-dialog h2 { margin: 0; font-size: 19px; }
-#sbt-dialog p { line-height: 1.5; color: #bfc5c3; }
-#sbt-dialog code { overflow-wrap: anywhere; }
-#sbt-dialog select { font: inherit; color: inherit; background: #202a38; padding: 6px; }
-#sbt-files { list-style: none; padding: 0; }
-.sbt-file { padding: 12px 0; border-top: 1px solid #292929; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px 12px; }
-.sbt-file strong, .sbt-file span { overflow-wrap: anywhere; }
-.sbt-file progress { grid-column: 1; width: 100%; accent-color: #3780e9; }
-.sbt-file .sbt-button { grid-column: 2; grid-row: 1 / span 3; align-self: center; }
-.sbt-file code { grid-column: 1; font-size: 11px; color: #799c92; }
-.sbt-file span { color: #bfc5c3; }
+.sbt-button:focus-visible, .sbt-icon:focus-visible { outline: 2px solid #3780e9; outline-offset: 3px; }
+#sbt-upload { position: fixed; right: 22px; top: 12px; z-index: 100; }
+#sbt-dialog { box-sizing: border-box; width: min(640px, 94vw); max-height: 85vh; overflow: auto; padding: 24px; border: 1px solid #3a3a3a; border-radius: 14px; background: #161616; color: #faf9f6; font: 14px system-ui, sans-serif; }
+#sbt-dialog::backdrop { background: rgb(0 0 0 / 60%); }
+#sbt-dialog header, #sbt-dialog footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+#sbt-dialog h2 { margin: 0; font-size: 18px; font-weight: 600; }
+.sbt-icon { border: 0; background: transparent; color: #aaa; font: 22px system-ui; cursor: pointer; padding: 4px 8px; }
+.sbt-icon:hover { color: #fff; }
+#sbt-drop { margin: 20px 0; padding: 30px 12px; border: 1px dashed #555; border-radius: 10px; text-align: center; }
+#sbt-drop p { margin: 10px 0 0; color: #999; font-size: 13px; }
+#sbt-drop.sbt-dragover { border-color: #3780e9; background: #202a38; }
+#sbt-dialog.sbt-has-files #sbt-drop { padding: 14px; }
+#sbt-files { list-style: none; padding: 0; margin: 0 0 20px; max-height: 45vh; overflow-y: auto; }
+.sbt-file { padding: 16px 0; border-bottom: 1px solid #303030; display: grid; grid-template-columns: minmax(0, 1fr) 60px minmax(60px, 120px) 32px; align-items: center; gap: 12px; }
+.sbt-file strong { font-size: 13px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sbt-size { color: #999; font-size: 12px; text-align: right; }
+.sbt-file progress { width: 100%; height: 6px; accent-color: #3780e9; }
+.sbt-file .sbt-state { color: #789b88; text-align: center; }
+.sbt-file .sbt-error { grid-column: 1 / -1; color: #ae756f; font-size: 12px; }
+#sbt-dialog footer { color: #aaa; font-size: 12px; }
+#sbt-retry-upload { border: 0; color: #6f9ee8; background: transparent; cursor: pointer; }
+.sbt-sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+@media (max-width: 480px) { .sbt-file { grid-template-columns: minmax(0,1fr) 48px 65px 28px; gap: 7px; } }
 </style>
 <script id="shared-terminal-upload-script">
 (() => {
@@ -29,30 +35,34 @@
     upload.textContent = '↑ Upload'; upload.setAttribute('aria-label', 'Upload documents');
     const dialog = document.createElement('dialog');
     dialog.id = 'sbt-dialog'; dialog.setAttribute('aria-labelledby', 'sbt-upload-title');
-    dialog.innerHTML = '<header><h2 id="sbt-upload-title">Upload documents</h2><button class="sbt-button" type="button" aria-label="Close upload dialog">Close</button></header><p>Select multiple files with <strong>⌘-click</strong> on Mac, <strong>Ctrl-click</strong> on Windows/Linux, or <strong>Shift-click</strong> for a range. Files are saved under <code>~/Downloads/terminal-uploads/</code> on the hosting Mac.</p><div class="sbt-actions"><button id="sbt-choose" class="sbt-button" type="button">Choose files</button><label>Simultaneous uploads <select id="sbt-concurrency"><option>1</option><option>2</option><option selected>3</option></select></label><button id="sbt-retry-upload" class="sbt-button" type="button" disabled>Retry failed files</button></div><input id="sbt-file-input" type="file" multiple hidden><p><label><input id="sbt-insert-paths" type="checkbox" checked> Insert completed paths into terminal input when all files finish (without Enter)</label></p><p id="sbt-upload-result" role="status">Choose files to begin.</p><ul id="sbt-files" aria-label="Upload progress"></ul><p>Completed files stay listed. Closing cancels unfinished uploads; your terminal and agent keep running.</p>';
+    dialog.innerHTML = '<header><h2 id="sbt-upload-title">Upload</h2><button class="sbt-icon" type="button" aria-label="Close upload dialog">×</button></header><div id="sbt-drop"><button id="sbt-choose" class="sbt-button" type="button">Browse</button><p>or drop files here</p></div><input id="sbt-file-input" type="file" multiple hidden><ul id="sbt-files" aria-label="Upload progress"></ul><footer><label><input id="sbt-insert-paths" type="checkbox" checked> Insert paths</label><button id="sbt-retry-upload" type="button" hidden>Retry failed</button></footer><p id="sbt-upload-result" class="sbt-sr-only" role="status"></p>';
     document.body.append(upload, dialog);
     const result = dialog.querySelector('#sbt-upload-result'), list = dialog.querySelector('#sbt-files');
     const input = dialog.querySelector('#sbt-file-input'), retry = dialog.querySelector('#sbt-retry-upload');
-    const concurrency = dialog.querySelector('#sbt-concurrency'), insert = dialog.querySelector('#sbt-insert-paths');
+    const insert = dialog.querySelector('#sbt-insert-paths'), drop = dialog.querySelector('#sbt-drop');
     const items = [];
-    let active = 0;
+    let active = 0, lastCompletedCount = 0;
     const bytes = number => number < 1024 ? number + ' B' : number < 1024 ** 2 ? (number / 1024).toFixed(1) + ' KB' : (number / 1024 ** 2).toFixed(1) + ' MB';
     function update() {
       const complete = items.filter(item => item.state === 'complete');
-      const total = items.reduce((sum, item) => sum + item.file.size, 0);
-      const received = items.reduce((sum, item) => sum + item.received, 0);
+      dialog.classList.toggle('sbt-has-files', items.length > 0);
       for (const item of items) {
         item.row.dataset.state = item.state;
-        item.savedPath.hidden = item.state !== 'complete';
-        item.savedPath.textContent = item.path || '';
         item.progress.value = item.file.size ? item.received / item.file.size : item.state === 'complete' ? 1 : 0;
-        item.status.textContent = (item.state === 'complete' ? 'Uploaded' : item.error || ({queued: 'Queued', connecting: 'Connecting', uploading: item.received === item.file.size ? 'Confirming save' : 'Uploading', canceled: 'Canceled'})[item.state]) + ' · ' + bytes(item.received) + ' / ' + bytes(item.file.size);
+        item.status.textContent = item.state === 'complete' ? '✓' : '';
+        item.status.hidden = item.state !== 'complete';
+        item.status.setAttribute('aria-label', 'Uploaded');
+        item.errorText.hidden = !item.error;
+        item.errorText.textContent = item.error || '';
         item.button.hidden = item.state === 'complete';
-        item.button.textContent = ['failed', 'canceled'].includes(item.state) ? 'Retry' : 'Cancel';
+        const canRetry = ['failed', 'canceled'].includes(item.state);
+        item.button.textContent = canRetry ? '↻' : '×';
+        item.button.setAttribute('aria-label', canRetry ? 'Retry' : 'Cancel');
+        item.button.title = canRetry ? 'Retry' : 'Cancel';
       }
-      retry.disabled = !items.some(item => ['failed', 'canceled'].includes(item.state));
+      retry.hidden = !items.some(item => ['failed', 'canceled'].includes(item.state));
       if (!items.length) return;
-      result.textContent = complete.length + ' of ' + items.length + ' files uploaded · ' + bytes(received) + ' / ' + bytes(total);
+      result.textContent = complete.length + ' of ' + items.length + ' uploaded';
       if (complete.length === items.length && insert.checked && window.term) {
         const pending = complete.filter(item => !item.inserted);
         if (pending.length) {
@@ -60,7 +70,11 @@
           window.term.paste(' ' + quoted + ' ');
           pending.forEach(item => { item.inserted = true; });
         }
-        result.textContent += ' · Paths inserted. Close to return to your terminal.';
+        result.textContent += '. Paths inserted.';
+      }
+      if (complete.length === items.length && complete.length > lastCompletedCount && dialog.open) {
+        lastCompletedCount = complete.length;
+        dialog.close();
       }
     }
     function queue(item) {
@@ -71,7 +85,7 @@
     }
     function schedule() {
       if (!dialog.open) return;
-      while (active < Number(concurrency.value)) {
+      while (active < 3) {
         const item = items.find(item => item.state === 'queued' && !item.running);
         if (!item) break;
         item.running = true; active++; run(item);
@@ -105,19 +119,27 @@
     }
     upload.addEventListener('click', () => { dialog.showModal(); update(); schedule(); });
     dialog.querySelector('#sbt-choose').addEventListener('click', () => input.click());
-    input.addEventListener('change', () => {
-      for (const file of input.files) {
+    function addFiles(files) {
+      for (const file of files) {
         const row = document.createElement('li'); row.className = 'sbt-file';
-        const name = document.createElement('strong'); name.textContent = file.name;
+        const name = document.createElement('strong'); name.textContent = file.name; name.title = file.name;
         const progress = document.createElement('progress'); progress.max = 1; progress.value = 0; progress.setAttribute('aria-label', file.name + ' upload progress');
-        const status = document.createElement('span'), button = document.createElement('button'), savedPath = document.createElement('code');
-        savedPath.hidden = true;
-        button.className = 'sbt-button'; button.type = 'button';
-        const item = {file, row, progress, status, button, savedPath, state: 'queued', received: 0};
+        const status = document.createElement('span'), button = document.createElement('button'), size = document.createElement('span'), errorText = document.createElement('span');
+        status.className = 'sbt-state'; size.className = 'sbt-size'; size.textContent = bytes(file.size);
+        errorText.className = 'sbt-error'; errorText.hidden = true;
+        button.className = 'sbt-icon'; button.type = 'button';
+        const item = {file, row, progress, status, button, errorText, state: 'queued', received: 0};
         button.addEventListener('click', () => ['failed', 'canceled'].includes(item.state) ? queue(item) : cancel(item));
-        row.append(name, progress, status, button, savedPath); list.append(row); items.push(item);
+        row.append(name, size, progress, button, status, errorText); list.append(row); items.push(item);
       }
-      input.value = ''; update(); schedule();
+      update(); schedule();
+    }
+    input.addEventListener('change', () => { addFiles(input.files); input.value = ''; });
+    drop.addEventListener('dragover', event => { event.preventDefault(); event.stopPropagation(); drop.classList.add('sbt-dragover'); });
+    drop.addEventListener('dragleave', () => drop.classList.remove('sbt-dragover'));
+    drop.addEventListener('drop', event => {
+      event.preventDefault(); event.stopPropagation(); drop.classList.remove('sbt-dragover');
+      addFiles(event.dataTransfer.files);
     });
     retry.addEventListener('click', () => {
       for (const item of items) if (['failed', 'canceled'].includes(item.state)) {
@@ -125,7 +147,7 @@
       }
       update(); schedule();
     });
-    concurrency.addEventListener('change', schedule); insert.addEventListener('change', update);
+    insert.addEventListener('change', update);
     dialog.querySelector('[aria-label="Close upload dialog"]').addEventListener('click', () => dialog.close());
     dialog.addEventListener('close', () => {
       for (const item of items) if (!['complete', 'failed', 'canceled'].includes(item.state)) cancel(item);
