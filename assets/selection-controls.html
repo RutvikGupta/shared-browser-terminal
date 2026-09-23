@@ -35,11 +35,44 @@
     event.preventDefault(); event.stopImmediatePropagation();
     selectTo(event); drag = null;
   }, true);
+  function selectWord(term, screen, event) {
+    const position = cell(term, screen, event);
+    const buffer = term.buffer.active;
+    let firstRow = Math.floor(position / term.cols), lastRow = firstRow;
+    // Soft wraps belong to the same logical line; hard line breaks do not.
+    while (firstRow > 0 && buffer.getLine(firstRow)?.isWrapped) firstRow--;
+    while (buffer.getLine(lastRow + 1)?.isWrapped) lastRow++;
+    const cells = [];
+    for (let row = firstRow; row <= lastRow; row++) {
+      const line = buffer.getLine(row);
+      for (let column = 0; column < term.cols; column++) {
+        const value = line?.getCell(column);
+        if (!value || value.getWidth() === 0) continue;
+        cells.push({start: row * term.cols + column, width: value.getWidth(), text: value.getChars()});
+      }
+    }
+    let start = cells.findIndex(value => position >= value.start && position < value.start + value.width);
+    if (start < 0) return;
+    let end = start;
+    const category = value => /^\s*$/u.test(value.text) ? 'space' :
+      [...value.text].some(char => term.options.wordSeparator.includes(char)) ? 'separator' : 'word';
+    const kind = category(cells[start]);
+    if (kind !== 'separator') {
+      while (start > 0 && category(cells[start - 1]) === kind) start--;
+      while (end + 1 < cells.length && category(cells[end + 1]) === kind) end++;
+    }
+    const offset = cells[start].start;
+    term.select(offset % term.cols, Math.floor(offset / term.cols), cells[end].start + cells[end].width - offset);
+  }
   // xterm's normal click/word-selection handlers must not clear our selection.
   for (const type of ['click', 'dblclick']) {
     document.addEventListener(type, event => {
       if (event.button === 0 && !event.altKey && !event.ctrlKey && !event.metaKey && screenFor(window.term)?.contains(event.target)) {
         event.preventDefault(); event.stopImmediatePropagation();
+        if (type === 'dblclick') {
+          drag = null;
+          selectWord(window.term, screenFor(window.term), event);
+        }
       }
     }, true);
   }

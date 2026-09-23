@@ -16,7 +16,7 @@ sys.path.insert(0, str(Path(sys.argv[1])/'scripts'))
 import browser_terminal as terminal
 state=Path(sys.argv[2])
 fixture=state/'fixture.py'
-fixture.write_text("import os,tty,time\nfrom pathlib import Path\ntty.setraw(0)\nos.write(1, ('\\x1b[2J\\x1b[H'+'\\r\\n'.join('Copy sample line %03d alpha beta gamma https://example.test/terminal-link' % i for i in range(100))).encode())\nwhile True:\n data=os.read(0,1024)\n if data==b'r':\n  for i in range(30):\n   os.write(1,b'\\x1b[?25l\\x1b[1;20H.\\x1b[?25h')\n   time.sleep(0.035)\n with Path(__file__).with_name('input.bin').open('ab') as out: out.write(data)\n")
+fixture.write_text("import os,tty,time\nfrom pathlib import Path\ntty.setraw(0)\nos.write(1, ('\\x1b[2J\\x1b[H'+'\\r\\n'.join('Copy sample line %03d alpha beta gamma https://example.test/terminal-link café 你好 élan' % i for i in range(100))).encode())\nwhile True:\n data=os.read(0,1024)\n if data==b'r':\n  for i in range(30):\n   os.write(1,b'\\x1b[?25l\\x1b[1;20H.\\x1b[?25h')\n   time.sleep(0.035)\n with Path(__file__).with_name('input.bin').open('ab') as out: out.write(data)\n")
 with socket.socket() as sock:
  sock.bind(('127.0.0.1',0)); port=sock.getsockname()[1]
 config={'session':'selection-test','port':port,'font_size':14,'cwd':str(state)}
@@ -66,6 +66,22 @@ terminal.restart_ttyd(state,config)
     });
     await page.keyboard.press('Meta+c');
     assert.equal(await page.evaluate(()=>navigator.clipboard.readText()),location.expected,'native copy fallback works when the Clipboard API is blocked');
+    for (const word of ['sample', 'café', '你好', 'élan']) {
+      const target=await page.evaluate(word=>{
+        const term=window.term, line=term.buffer.active.getLine(term.buffer.active.viewportY);
+        for(let column=0;column<term.cols;column++) {
+          if(line.translateToString(true,column).startsWith(word))return column;
+        }
+        throw new Error('Missing test word: '+word);
+      },word);
+      // The second cell of a wide character must select the same word.
+      await page.mouse.dblclick(location.x+(target+(word==='你好'?1.5:0.5))*location.w,location.y+0.5*location.h);
+      assert.equal(await page.evaluate(()=>window.term.getSelection()),word,'double-click selects '+word+' after release');
+      await page.keyboard.press('Meta+c');
+      assert.equal(await page.evaluate(()=>navigator.clipboard.readText()),word,'double-click selection is copyable');
+    }
+    assert(!fs.existsSync(path.join(state,'input.bin')),'double-click and copy must not send terminal input');
+    console.log('PASS: double-click selects words, including wide and combining characters, and Command+C copies them.');
     // External navigation is fulfilled locally: no real website is contacted.
     await context.route('https://example.test/**', route=>route.fulfill({body:'Terminal link test'}));
     await page.mouse.move(location.x+48*location.w,location.y+0.5*location.h);
@@ -81,6 +97,7 @@ terminal.restart_ttyd(state,config)
     await linked.waitForURL('https://example.test/terminal-link');
     assert.equal(await linked.evaluate(()=>window.opener),null,'opened link cannot control terminal tab');
     await linked.close();
+    await page.bringToFront();
     assert(!fs.existsSync(path.join(state,'input.bin')),'Command-click must not send terminal input');
     await page.evaluate(()=>window.term.focus());
     console.log('PASS: Command-click opens the URL in a separate tab without terminal input.');
@@ -135,6 +152,15 @@ terminal.restart_ttyd(state,config)
     assert(samples.every(color=>color===cursor),'browser must not hide the caret during redraws or idle');
     assert.equal(await page.evaluate(()=>window.term.options.cursorBlink),false,'steady cursor remains enabled');
     console.log('PASS: caret color remains visible through real tmux redraws and idle without typing.');
+    // Check selection across a soft wrap using the public terminal buffer API.
+    await page.evaluate(()=>new Promise(resolve=>window.term.write('\x1b[2J\x1b[H'+' '.repeat(window.term.cols-4)+'wrappedword',resolve)));
+    const wrapped=await page.evaluate(()=>{
+      const t=window.term,r=t.element.querySelector('.xterm-screen').getBoundingClientRect();
+      return {x:r.x+r.width/t.cols*1.5,y:r.y+r.height/t.rows*1.5};
+    });
+    await page.mouse.dblclick(wrapped.x,wrapped.y);
+    assert.equal(await page.evaluate(()=>window.term.getSelection()),'wrappedword','word selection spans a soft line wrap');
+
     console.log('PASS: forward/reverse drag persists; Command+C and Ctrl+Shift+C copy exact text without shell input; Ctrl+C interrupts; wheel scrollback and Upload remain available.');
   } finally {
     if(browser)await browser.close();

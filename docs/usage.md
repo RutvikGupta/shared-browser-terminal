@@ -153,7 +153,8 @@ previous redraw-hiding workaround.
 
 ## Highlight and copy
 
-Drag over terminal text with the primary mouse button, release, then press
+Drag over terminal text or double-click a word with the primary mouse button,
+release, then press
 **Command+C** on Mac or **Ctrl+Shift+C** on other platforms. The highlight stays
 until you select again or interact with the terminal. Copying writes plain text
 to the client laptop's clipboard and sends no input to the remote shell.

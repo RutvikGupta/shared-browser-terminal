@@ -67,7 +67,8 @@ publish an old unauthenticated listener such as port 7681.
   bar, a steady cursor, trackpad/wheel scrolling, 50,000 lines of scrollback
   for new panes. The browser does not hide the caret while idle or during
   output; applications retain control of their own cursor visibility.
-- Drag to highlight text; the highlight stays after release. **⌘C** copies on
+- Drag to highlight text or double-click to select a word; the highlight stays
+  after release. **⌘C** copies on
   Mac (**Ctrl+Shift+C** elsewhere). **Ctrl+C** still interrupts commands.
 - **Command-click** a visible HTTP/HTTPS URL to open it in a new browser tab.
   Ordinary clicks and drags retain text selection.

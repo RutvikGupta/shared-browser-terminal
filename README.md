@@ -100,7 +100,7 @@ scripts from a normal checkout without installing a Codex skill.
 
 | Action | Control |
 | --- | --- |
-| Highlight and copy terminal text | Drag, release, then ⌘C (Mac) or Ctrl+Shift+C |
+| Highlight and copy terminal text | Drag or double-click a word, then ⌘C (Mac) or Ctrl+Shift+C |
 | Accept the visible inline suggestion | Tab or Right Arrow at the end of the input |
 | Complete a command/path when no suggestion is visible | Tab |
 | Search local command history | Ctrl+R |
