@@ -16,7 +16,7 @@ sys.path.insert(0, str(Path(sys.argv[1])/'scripts'))
 import browser_terminal as terminal
 state=Path(sys.argv[2])
 fixture=state/'fixture.py'
-fixture.write_text("import os,tty,time\nfrom pathlib import Path\ntty.setraw(0)\nos.write(1, ('\\x1b[2J\\x1b[H'+'\\r\\n'.join('Copy sample line %03d alpha beta gamma' % i for i in range(100))).encode())\nwhile True:\n data=os.read(0,1024)\n if data==b'r':\n  for i in range(30):\n   os.write(1,b'\\x1b[?25l\\x1b[1;20H.\\x1b[?25h')\n   time.sleep(0.035)\n with Path(__file__).with_name('input.bin').open('ab') as out: out.write(data)\n")
+fixture.write_text("import os,tty,time\nfrom pathlib import Path\ntty.setraw(0)\nos.write(1, ('\\x1b[2J\\x1b[H'+'\\r\\n'.join('Copy sample line %03d alpha beta gamma https://example.test/terminal-link' % i for i in range(100))).encode())\nwhile True:\n data=os.read(0,1024)\n if data==b'r':\n  for i in range(30):\n   os.write(1,b'\\x1b[?25l\\x1b[1;20H.\\x1b[?25h')\n   time.sleep(0.035)\n with Path(__file__).with_name('input.bin').open('ab') as out: out.write(data)\n")
 with socket.socket() as sock:
  sock.bind(('127.0.0.1',0)); port=sock.getsockname()[1]
 config={'session':'selection-test','port':port,'font_size':14,'cwd':str(state)}
@@ -66,6 +66,24 @@ terminal.restart_ttyd(state,config)
     });
     await page.keyboard.press('Meta+c');
     assert.equal(await page.evaluate(()=>navigator.clipboard.readText()),location.expected,'native copy fallback works when the Clipboard API is blocked');
+    // External navigation is fulfilled locally: no real website is contacted.
+    await context.route('https://example.test/**', route=>route.fulfill({body:'Terminal link test'}));
+    await page.mouse.move(location.x+48*location.w,location.y+0.5*location.h);
+    await page.mouse.click(location.x+48*location.w,location.y+0.5*location.h);
+    await page.waitForTimeout(100);
+    assert.equal(context.pages().length,1,'ordinary click must not open links');
+    assert(!fs.existsSync(path.join(state,'input.bin')),'ordinary click remains browser selection');
+    await page.keyboard.down('Meta');
+    const opened=context.waitForEvent('page',{timeout:5000});
+    await page.mouse.click(location.x+48*location.w,location.y+0.5*location.h);
+    await page.keyboard.up('Meta');
+    const linked=await opened;
+    await linked.waitForURL('https://example.test/terminal-link');
+    assert.equal(await linked.evaluate(()=>window.opener),null,'opened link cannot control terminal tab');
+    await linked.close();
+    assert(!fs.existsSync(path.join(state,'input.bin')),'Command-click must not send terminal input');
+    await page.evaluate(()=>window.term.focus());
+    console.log('PASS: Command-click opens the URL in a separate tab without terminal input.');
     await page.keyboard.press('Control+c');
     for(let i=0;i<50&&!fs.existsSync(path.join(state,'input.bin'));i++) await new Promise(r=>setTimeout(r,20));
     assert.equal(fs.readFileSync(path.join(state,'input.bin')).toString('hex'),'03','Ctrl+C must still reach the program');

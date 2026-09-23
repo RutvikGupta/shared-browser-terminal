@@ -69,6 +69,8 @@ publish an old unauthenticated listener such as port 7681.
   output; applications retain control of their own cursor visibility.
 - Drag to highlight text; the highlight stays after release. **⌘C** copies on
   Mac (**Ctrl+Shift+C** elsewhere). **Ctrl+C** still interrupts commands.
+- **Command-click** a visible HTTP/HTTPS URL to open it in a new browser tab.
+  Ordinary clicks and drags retain text selection.
 - **Shift+Enter** adds a newline in the Codex composer; Enter submits normally.
   The browser sends Codex's Alt+Enter alias through tmux. Other programs follow
   their own Alt+Enter binding. Refresh existing tabs after upgrading.

@@ -167,6 +167,13 @@ handling instead. Browser/application shortcuts with modifiers are preserved.
 
 Refresh an existing browser tab after upgrading to load the selection controls.
 
+## Open terminal links
+
+Hold **Command (⌘)** and click a visible HTTP/HTTPS URL to open it in a new
+browser tab on your viewing laptop. The terminal stays open in its existing tab.
+Ordinary clicks and drags continue to select text. The built-in terminal link
+handler opens the destination without sending keystrokes to the shell.
+
 ## Multiline input in Codex
 
 Press **Shift+Enter** to add a newline in the Codex composer. **Enter** still
