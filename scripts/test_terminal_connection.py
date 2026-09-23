@@ -13,6 +13,13 @@ class ConnectionTests(unittest.TestCase):
     def test_normal_connection_attaches_exact_session(self):
         self.assertEqual(connection_command(['example']), ['tmux', 'attach', '-t', '=example'])
 
+    def test_stream_upload_uses_only_the_fixed_receiver(self):
+        result = connection_command(['example', 'upload-stream'])
+        self.assertEqual(Path(result[1]).name, 'upload_receiver.py')
+        self.assertEqual(len(result), 2)
+        with self.assertRaises(ValueError):
+            connection_command(['example', 'upload-stream', '/custom/destination'])
+
     def test_upload_runs_receiver_separately_in_fixed_directory(self):
         with tempfile.TemporaryDirectory() as folder:
             with patch('terminal_connection.Path.home', return_value=Path(folder)), \

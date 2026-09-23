@@ -37,102 +37,100 @@ terminal.restart_ttyd(state,config)
     const split=login.indexOf(':');
     browser=await chromium.launch({headless:true});
     const context=await browser.newContext({httpCredentials:{username:login.slice(0,split),password:login.slice(split+1)},viewport:{width:1200,height:800}});
-    const files=[{name:"report ' résumé $(echo test).txt",text:'Synthetic first document.\n'},{name:'second report.txt',text:'Synthetic second document.\n'}];
-    await context.addInitScript(files=>{
-      window.showOpenFilePicker=async options=>{
-        if(!navigator.userActivation.isActive)throw new Error('No file picker user activation');
-        if(options?.multiple !== true)throw new Error('File picker must allow multiple selection');
-        return files.map(file=>({kind:'file',name:file.name,getFile:async()=>new File([file.text],file.name,{type:'text/plain'})}));
+    const files=[
+      {name:"report ' résumé $(echo test).bin",buffer:Buffer.alloc(800000,0xff),mimeType:'application/octet-stream'},
+      {name:'second report.bin',buffer:Buffer.from(Array.from({length:600000},(_,i)=>i%256)),mimeType:'application/octet-stream'},
+      {name:'third.bin',buffer:Buffer.alloc(400000,33),mimeType:'application/octet-stream'},
+      {name:'empty.txt',buffer:Buffer.alloc(0),mimeType:'text/plain'},
+      {name:'last.txt',buffer:Buffer.from('final document'),mimeType:'text/plain'}
+    ];
+    await context.addInitScript(()=>{
+      // Slow only reads of synthetic selected files so overlapping states are observable.
+      const slice=File.prototype.slice;
+      File.prototype.slice=function(...args){
+        const blob=slice.apply(this,args), read=blob.arrayBuffer.bind(blob);
+        blob.arrayBuffer=async()=>{await new Promise(resolve=>setTimeout(resolve,40));return read();};
+        return blob;
       };
-    },files);
+    });
     const page=await context.newPage();
     await page.goto('http://127.0.0.1:'+config.port);
     await page.waitForFunction(()=>window.term?.buffer.active.getLine(window.term.buffer.active.viewportY)?.translateToString().includes('Copy sample'));
-    // Keep the upload receipts so assertions use server-reported actual paths.
     await page.evaluate(()=>{
-      window.uploadReceipts=[];
-      window.addEventListener('message',e=>{
-        if(e.origin===location.origin&&e.source===document.querySelector('#sbt-dialog iframe')?.contentWindow&&e.data?.type==='sbt-upload-complete')window.uploadReceipts.push(e.data.paths);
-      },true);
       window.term.paste('existing draft');
+      window.maxUploads=0;window.sawPartial=false;window.rowCounts=[];
+      window.sampler=setInterval(()=>{
+        const rows=[...document.querySelectorAll('.sbt-file')];
+        window.maxUploads=Math.max(window.maxUploads,rows.filter(row=>row.dataset.state==='uploading').length);
+        window.sawPartial ||= rows.some(row=>{const p=row.querySelector('progress');return p.value>0&&p.value<1;});
+        window.rowCounts.push(rows.length);
+      },10);
     });
-    const upload=async(insert=true)=>{
-      await page.getByRole('button',{name:'Upload documents',exact:true}).click();
-      if(!insert)await page.locator('#sbt-insert-paths').uncheck();
-      const frame=page.frameLocator('iframe[title="Document upload terminal"]');
-      await frame.getByRole('button',{name:'Choose files',exact:true}).click({timeout:15000});
-    };
-    await upload();
-    await page.waitForFunction(()=>window.uploadReceipts.length===1,{},{timeout:20000});
-    const paths=await page.evaluate(()=>window.uploadReceipts[0]);
+    await page.getByRole('button',{name:'Upload documents',exact:true}).click();
+    assert(await page.locator('#sbt-file-input').getAttribute('multiple')!==null);
+    await page.locator('#sbt-file-input').setInputFiles(files);
+    await page.waitForFunction(()=>document.querySelectorAll('.sbt-file[data-state="complete"]').length===5,{},{timeout:30000});
+    const paths=await page.locator('.sbt-file code').allTextContents();
     paths.forEach(p=>receivedDirs.add(path.dirname(p)));
-    assert.equal(paths.length,2);
-    for(const file of files){const target=paths.find(p=>path.basename(p)===file.name);assert(target);assert.equal(fs.readFileSync(target,'utf8'),file.text);}
-    await page.locator('#sbt-dialog').waitFor({state:'hidden'});
-    await page.waitForFunction(()=>window.term.element.contains(document.activeElement));
+    for(let i=0;i<files.length;i++)assert.deepEqual(fs.readFileSync(paths[i]),files[i].buffer,'exact binary content');
+    assert(await page.locator('#sbt-dialog').isVisible(),'completed list remains visible');
+    assert.equal(await page.locator('.sbt-file').count(),5,'all selected files retain a row');
+    const observation=await page.evaluate(()=>({max:window.maxUploads,partial:window.sawPartial}));
+    assert(observation.max>=2&&observation.max<=3,'transfers overlap within the configured limit');
+    assert(observation.partial,'receiver-acknowledged intermediate progress is displayed');
     const expected='existing draft '+paths.map(p=>"'"+p.replaceAll("'","'\\''")+"'").join(' ')+' ';
     const input=path.join(state,'input.bin');
-    for(let i=0;i<100 && (!fs.existsSync(input)||fs.readFileSync(input,'utf8')!==expected);i++)await new Promise(r=>setTimeout(r,20));
-    assert.equal(fs.readFileSync(input,'utf8'),expected,'exact quoted paths append without clearing draft or sending Enter');
-    const parsed=JSON.parse(execFileSync(python,['-c','import sys,shlex,json; print(json.dumps(shlex.split(sys.stdin.read())))'],{input:expected,encoding:'utf8'}));
-    assert.deepEqual(parsed,['existing','draft',...paths],'shell quoting preserves filenames as literal arguments');
-    // Uploading the same names again creates distinct host paths; opt-out sends no input.
-    await upload(false);
-    await page.waitForFunction(()=>window.uploadReceipts.length===2,{},{timeout:20000});
-    const second=await page.evaluate(()=>window.uploadReceipts[1]);
-    second.forEach(p=>receivedDirs.add(path.dirname(p)));
-    assert.notEqual(path.dirname(second[0]),path.dirname(paths[0]));
+    for(let i=0;i<100&&(!fs.existsSync(input)||fs.readFileSync(input,'utf8')!==expected);i++)await new Promise(r=>setTimeout(r,20));
+    assert.equal(fs.readFileSync(input,'utf8'),expected,'all paths insert once, without clearing draft or Enter');
+    await page.locator('#sbt-insert-paths').uncheck();
+    // An invalid filename fails only its own row; queued files continue.
+    const more=[{name:'bad\nname.txt',buffer:Buffer.from('bad'),mimeType:'text/plain'},files[4]];
+    await page.locator('#sbt-file-input').setInputFiles(more);
+    await page.waitForFunction(()=>document.querySelectorAll('.sbt-file[data-state="failed"]').length===1&&document.querySelectorAll('.sbt-file[data-state="complete"]').length===6);
+    const duplicate=await page.locator('.sbt-file code').nth(6).textContent();
+    receivedDirs.add(path.dirname(duplicate));assert.notEqual(duplicate,paths[4]);
+    assert.equal(fs.readFileSync(input,'utf8'),expected,'opt-out sends no extra input');
+    // Keep the persistent completed rows while a new file is canceled and retried.
+    await page.locator('#sbt-concurrency').selectOption('1');
+    await page.locator('#sbt-file-input').setInputFiles([files[0]]);
+    const canceled=page.locator('.sbt-file').nth(7);
+    await page.waitForFunction(()=>document.querySelectorAll('.sbt-file')[7].dataset.state==='uploading');
+    await canceled.getByRole('button',{name:'Cancel',exact:true}).click();
+    await page.waitForFunction(()=>document.querySelectorAll('.sbt-file')[7].dataset.state==='canceled');
+    assert.equal(await page.locator('.sbt-file').count(),8);
+    await canceled.getByRole('button',{name:'Retry',exact:true}).click();
+    await page.waitForFunction(()=>document.querySelectorAll('.sbt-file')[7].dataset.state==='complete',{},{timeout:30000});
+    const retried=await canceled.locator('code').textContent();receivedDirs.add(path.dirname(retried));
+    assert.deepEqual(fs.readFileSync(retried),files[0].buffer);
     assert.equal(fs.readFileSync(input,'utf8'),expected);
     await page.getByRole('button',{name:'Close upload dialog'}).click();
-    // Canceled picker must not paste partial paths or emit a completion receipt.
+    await page.waitForFunction(()=>window.term.element.contains(document.activeElement));
     await page.getByRole('button',{name:'Upload documents',exact:true}).click();
-    await page.frameLocator('iframe').getByRole('button',{name:'Choose files',exact:true}).waitFor();
-    const frame=page.frames().find(frame=>frame.url().includes('arg=upload'));
-    await frame.evaluate(()=>{window.showOpenFilePicker=async()=>{throw new DOMException('Canceled','AbortError');};});
-    await page.frameLocator('iframe').getByRole('button',{name:'Choose files',exact:true}).click();
-    await frame.waitForFunction(()=>{
-      const t=window.term;
-      for(let i=0;i<t.buffer.active.length;i++)if(t.buffer.active.getLine(i)?.translateToString().includes('No completed upload paths'))return true;
-      return false;
-    });
-    assert.equal(await page.evaluate(()=>window.uploadReceipts.length),2);
-    assert.equal(fs.readFileSync(input,'utf8'),expected);
-    await page.waitForFunction(()=>document.querySelector('#sbt-upload-result').textContent.includes('canceled or failed'));
-    // Recover a canceled picker without reloading the main terminal.
-    await page.getByRole('button',{name:'Retry upload',exact:true}).click();
-    await page.frameLocator('iframe').getByRole('button',{name:'Choose files',exact:true}).click();
-    await page.waitForFunction(()=>window.uploadReceipts.length===3,{},{timeout:20000});
-    (await page.evaluate(()=>window.uploadReceipts[2])).forEach(p=>receivedDirs.add(path.dirname(p)));
-    assert.equal(fs.readFileSync(input,'utf8'),expected,'retry preserves opt-out and draft');
-    await page.getByRole('button',{name:'Close upload dialog'}).click();
-    // Simulate failed iframe loads. Only startup is automatically retried, once.
+    assert.equal(await page.locator('.sbt-file').count(),8,'reopening preserves all progress rows');
+    // A receiver that accepts a file but receives no bytes times out visibly;
+    // it is not silently restarted, and Retry uses a fresh connection.
     await page.clock.install();
-    await context.route('**/*arg=upload*',route=>route.abort());
-    await page.getByRole('button',{name:'Upload documents',exact:true}).click();
-    const firstFrame=await page.locator('iframe').elementHandle();
-    await page.clock.fastForward(15001);
-    assert.equal(await firstFrame.evaluate(el=>el.isConnected),false,'startup timeout replaces the failed upload frame');
-    const retryFrame=await page.locator('iframe').elementHandle();
-    await page.clock.fastForward(15001);
-    assert.equal(await retryFrame.evaluate(el=>el.isConnected),true,'automatic retries are bounded');
-    assert.match(await page.locator('#sbt-upload-result').textContent(),/could not connect/);
-    await context.unroute('**/*arg=upload*');
-    await page.getByRole('button',{name:'Retry upload',exact:true}).click();
-    await page.frameLocator('iframe').getByRole('button',{name:'Choose files',exact:true}).waitFor();
-    const stuck=page.frames().find(frame=>frame.url().includes('arg=upload'));
-    await stuck.evaluate(()=>{window.showOpenFilePicker=()=>new Promise(()=>{});});
-    await page.frameLocator('iframe').getByRole('button',{name:'Choose files',exact:true}).click();
-    await page.waitForFunction(()=>document.querySelector('#sbt-dialog iframe').dataset.state==='started');
-    const transferFrame=await page.locator('iframe').elementHandle();
-    await page.clock.fastForward(60001);
-    assert.equal(await transferFrame.evaluate(el=>el.isConnected),true,'slow selection or transfer is never automatically canceled');
-    assert.match(await page.locator('#sbt-upload-result').textContent(),/Still waiting/);
-    await page.getByRole('button',{name:'Retry upload',exact:true}).click();
-    await page.frameLocator('iframe').getByRole('button',{name:'Choose files',exact:true}).click();
-    await page.waitForFunction(()=>window.uploadReceipts.length===4,{},{timeout:20000});
-    (await page.evaluate(()=>window.uploadReceipts[3])).forEach(p=>receivedDirs.add(path.dirname(p)));
-    assert.equal(fs.readFileSync(input,'utf8'),expected,'recovered uploads never alter opted-out terminal input');
-    console.log('PASS: real uploads, exact bytes and quoted paths, preserved draft, no Enter, opt-out, unique destinations, cancellation/retry, bounded startup recovery, and stalled picker recovery without reloading the main terminal.');
+    await page.evaluate(()=>{
+      window.normalSlice=File.prototype.slice;
+      File.prototype.slice=function(...args){
+        const blob=window.normalSlice.apply(this,args);
+        if(this.name==='stalled.bin')blob.arrayBuffer=()=>new Promise(()=>{});
+        return blob;
+      };
+    });
+    await page.locator('#sbt-file-input').setInputFiles([{name:'stalled.bin',buffer:Buffer.from('recover me'),mimeType:'application/octet-stream'}]);
+    await page.waitForFunction(()=>document.querySelectorAll('.sbt-file')[8].dataset.state==='uploading');
+    await page.clock.fastForward(90001);
+    await page.waitForFunction(()=>document.querySelectorAll('.sbt-file')[8].dataset.state==='failed');
+    assert.match(await page.locator('.sbt-file').nth(8).textContent(),/timed out/);
+    await page.evaluate(()=>{File.prototype.slice=window.normalSlice;});
+    await page.locator('.sbt-file').nth(8).getByRole('button',{name:'Retry',exact:true}).click();
+    await page.waitForFunction(()=>document.querySelectorAll('.sbt-file')[8].dataset.state==='complete');
+    const recovered=await page.locator('.sbt-file').nth(8).locator('code').textContent();
+    receivedDirs.add(path.dirname(recovered));assert.equal(fs.readFileSync(recovered,'utf8'),'recover me');
+    assert.equal(fs.readFileSync(input,'utf8'),expected);
+    await page.screenshot({path:path.join(os.tmpdir(),'sbt-upload-progress.png')});
+    console.log('PASS: concurrent binary uploads with acknowledged intermediate progress; persistent per-file rows; empty/Unicode/duplicate names; exact path insertion; opt-out; independent failure; cancel/retry and retained history.');
   } finally {
     if(browser)await browser.close();
     for(const folder of receivedDirs)fs.rmSync(folder,{recursive:true,force:true});

@@ -2,146 +2,136 @@
 .sbt-button { font: 600 13px system-ui, sans-serif; color: #faf9f6; background: #202a38; border: 1px solid #3780e9; border-radius: 8px; padding: 9px 14px; cursor: pointer; }
 .sbt-button:hover { background: #2e5d9e; }
 .sbt-button:focus-visible { outline: 2px solid #faf9f6; outline-offset: 3px; }
-.sbt-button:disabled { opacity: .55; cursor: wait; }
-#sbt-upload, #sbt-choose { position: fixed; right: 16px; top: 12px; z-index: 100; }
-#sbt-dialog { box-sizing: border-box; width: min(780px, 94vw); max-height: 90vh; padding: 20px; border: 1px solid #566578; border-radius: 12px; background: #121212; color: #faf9f6; font: 14px system-ui, sans-serif; }
+.sbt-button:disabled { opacity: .55; cursor: default; }
+#sbt-upload { position: fixed; right: 16px; top: 12px; z-index: 100; }
+#sbt-dialog { box-sizing: border-box; width: min(800px, 94vw); max-height: 90vh; overflow: auto; padding: 20px; border: 1px solid #566578; border-radius: 12px; background: #121212; color: #faf9f6; font: 14px system-ui, sans-serif; }
 #sbt-dialog::backdrop { background: rgb(0 0 0 / 65%); }
-#sbt-dialog header { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+#sbt-dialog header, .sbt-actions { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
 #sbt-dialog h2 { margin: 0; font-size: 19px; }
 #sbt-dialog p { line-height: 1.5; color: #bfc5c3; }
-#sbt-dialog iframe { display: block; width: 100%; height: min(340px, 50vh); border: 1px solid #292929; border-radius: 6px; margin-top: 16px; }
 #sbt-dialog code { overflow-wrap: anywhere; }
+#sbt-dialog select { font: inherit; color: inherit; background: #202a38; padding: 6px; }
+#sbt-files { list-style: none; padding: 0; }
+.sbt-file { padding: 12px 0; border-top: 1px solid #292929; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px 12px; }
+.sbt-file strong, .sbt-file span { overflow-wrap: anywhere; }
+.sbt-file progress { grid-column: 1; width: 100%; accent-color: #3780e9; }
+.sbt-file .sbt-button { grid-column: 2; grid-row: 1 / span 3; align-self: center; }
+.sbt-file code { grid-column: 1; font-size: 11px; color: #799c92; }
+.sbt-file span { color: #bfc5c3; }
 </style>
 <script id="shared-terminal-upload-script">
 (() => {
   function setup() {
-    const modes = new URL(location.href).searchParams.getAll('arg');
-    const uploadMode = modes.length === 1 && modes[0] === 'upload';
-    if (uploadMode) {
-      const choose = document.createElement('button');
-      choose.id = 'sbt-choose'; choose.className = 'sbt-button';
-      choose.textContent = 'Connecting…'; choose.disabled = true;
-      document.body.append(choose);
-      let receiptHandler;
-      const poll = setInterval(() => {
-        const term = window.term;
-        if (!term) return;
-        if (!receiptHandler) receiptHandler = term.parser.registerOscHandler(777, data => {
-          if (data === 'sbt-upload-failed') {
-            choose.textContent = 'Upload ended';
-            window.parent.postMessage({type: 'sbt-upload-state', state: 'failed'}, location.origin);
-            return true;
-          }
-          const prefix = 'sbt-upload-complete;';
-          if (!data.startsWith(prefix)) return false;
-          try {
-            const receipt = JSON.parse(atob(data.slice(prefix.length)));
-            window.parent.postMessage({type: 'sbt-upload-complete', paths: receipt.paths}, location.origin);
-          } catch { /* Invalid receipts never reach the main terminal input. */ }
-          return true;
-        });
-        for (let i = 0; i < term.buffer.active.length; i++) {
-          if (term.buffer.active.getLine(i)?.translateToString().includes('Ready to upload.')) {
-            clearInterval(poll); choose.textContent = 'Choose files'; choose.disabled = false;
-            window.parent.postMessage({type: 'sbt-upload-state', state: 'ready'}, location.origin);
-            return;
-          }
-        }
-      }, 100);
-      window.addEventListener('pagehide', () => { clearInterval(poll); receiptHandler?.dispose(); }, {once: true});
-      choose.addEventListener('click', () => {
-        choose.disabled = true; choose.textContent = 'File selection opened';
-        window.parent.postMessage({type: 'sbt-upload-state', state: 'started'}, location.origin);
-        window.term.paste('\r');
-      });
-      return;
-    }
+    // Legacy upload URLs remain terminal receivers, without nesting another UI.
+    if (new URL(location.href).searchParams.has('arg')) return;
     const upload = document.createElement('button');
     upload.id = 'sbt-upload'; upload.className = 'sbt-button';
     upload.textContent = '↑ Upload'; upload.setAttribute('aria-label', 'Upload documents');
-    let focusTerminalOnClose = false, watchdog, connectionRetries = 0;
     const dialog = document.createElement('dialog');
     dialog.id = 'sbt-dialog'; dialog.setAttribute('aria-labelledby', 'sbt-upload-title');
-    dialog.innerHTML = '<header><h2 id="sbt-upload-title">Upload documents</h2><button class="sbt-button" type="button" aria-label="Close upload dialog">Close</button></header><p>Click <strong>Choose files</strong> below. Select multiple files with <strong>⌘-click</strong> on Mac or <strong>Ctrl-click</strong> on Windows/Linux; <strong>Shift-click</strong> selects a range. Files are saved on the hosting Mac in <code>~/Downloads/terminal-uploads/upload-…/</code>. Your agent keeps running.</p><p>Keep this dialog open until the terminal reports that the files were saved.</p><label><input id="sbt-insert-paths" type="checkbox" checked> Insert completed file paths into terminal input (without Enter)</label><p id="sbt-upload-result" role="status"></p><button id="sbt-retry-upload" class="sbt-button" type="button">Retry upload</button><p>Retry replaces only the upload connection and cancels any unfinished transfer. Your main terminal stays connected.</p>';
+    dialog.innerHTML = '<header><h2 id="sbt-upload-title">Upload documents</h2><button class="sbt-button" type="button" aria-label="Close upload dialog">Close</button></header><p>Select multiple files with <strong>⌘-click</strong> on Mac, <strong>Ctrl-click</strong> on Windows/Linux, or <strong>Shift-click</strong> for a range. Files are saved under <code>~/Downloads/terminal-uploads/</code> on the hosting Mac.</p><div class="sbt-actions"><button id="sbt-choose" class="sbt-button" type="button">Choose files</button><label>Simultaneous uploads <select id="sbt-concurrency"><option>1</option><option>2</option><option selected>3</option></select></label><button id="sbt-retry-upload" class="sbt-button" type="button" disabled>Retry failed files</button></div><input id="sbt-file-input" type="file" multiple hidden><p><label><input id="sbt-insert-paths" type="checkbox" checked> Insert completed paths into terminal input when all files finish (without Enter)</label></p><p id="sbt-upload-result" role="status">Choose files to begin.</p><ul id="sbt-files" aria-label="Upload progress"></ul><p>Completed files stay listed. Closing cancels unfinished uploads; your terminal and agent keep running.</p>';
     document.body.append(upload, dialog);
-    const result = dialog.querySelector('#sbt-upload-result');
-    function startUpload() {
-      clearTimeout(watchdog);
-      dialog.querySelector('iframe')?.remove();
-      result.textContent = connectionRetries ? 'Reconnecting upload…' : 'Connecting upload…';
-      const frame = document.createElement('iframe');
-      frame.title = 'Document upload terminal';
-      const url = new URL(location.href); url.search = ''; url.hash = '';
-      url.searchParams.set('arg', 'upload');
-      url.searchParams.set('disableReconnect', 'true');
-      url.searchParams.set('disableLeaveAlert', 'true');
-      url.searchParams.set('disableResizeOverlay', 'true');
-      url.searchParams.set('fontSize', '13');
-      url.searchParams.set('titleFixed', 'Upload documents');
-      frame.src = url.href;
-      dialog.append(frame);
-      watchdog = setTimeout(() => {
-        if (!dialog.open || dialog.querySelector('iframe') !== frame || frame.dataset.state) return;
-        if (connectionRetries++ === 0) startUpload();
-        else result.textContent = 'Upload could not connect. Check your connection, then choose Retry upload.';
-      }, 15000);
-    }
-    upload.addEventListener('click', () => {
-      connectionRetries = 0;
-      dialog.showModal(); startUpload();
-    });
-    dialog.querySelector('#sbt-retry-upload').addEventListener('click', () => {
-      connectionRetries = 0; startUpload();
-    });
-    window.addEventListener('message', event => {
-      const frame = dialog.querySelector('iframe');
-      if (!dialog.open || event.origin !== location.origin || event.source !== frame?.contentWindow ||
-          frame.dataset.completed) return;
-      if (event.data?.type === 'sbt-upload-state') {
-        const state = event.data.state;
-        if (!['ready', 'started', 'failed'].includes(state)) return;
-        // Ignore late readiness if selection/transfer has already started.
-        if (state === 'ready' && frame.dataset.state) return;
-        frame.dataset.state = state;
-        clearTimeout(watchdog);
-        if (state === 'ready') result.textContent = 'Connected. Choose files below.';
-        if (state === 'failed') result.textContent = 'Upload canceled or failed. Choose Retry upload to try again.';
-        if (state === 'started') {
-          result.textContent = 'Select your files, then keep this dialog open until upload completes.';
-          watchdog = setTimeout(() => {
-            result.textContent = 'Still waiting for upload completion. If the picker or transfer is stuck, choose Retry upload.';
-          }, 60000);
+    const result = dialog.querySelector('#sbt-upload-result'), list = dialog.querySelector('#sbt-files');
+    const input = dialog.querySelector('#sbt-file-input'), retry = dialog.querySelector('#sbt-retry-upload');
+    const concurrency = dialog.querySelector('#sbt-concurrency'), insert = dialog.querySelector('#sbt-insert-paths');
+    const items = [];
+    let active = 0;
+    const bytes = number => number < 1024 ? number + ' B' : number < 1024 ** 2 ? (number / 1024).toFixed(1) + ' KB' : (number / 1024 ** 2).toFixed(1) + ' MB';
+    function update() {
+      const complete = items.filter(item => item.state === 'complete');
+      const total = items.reduce((sum, item) => sum + item.file.size, 0);
+      const received = items.reduce((sum, item) => sum + item.received, 0);
+      for (const item of items) {
+        item.row.dataset.state = item.state;
+        item.savedPath.hidden = item.state !== 'complete';
+        item.savedPath.textContent = item.path || '';
+        item.progress.value = item.file.size ? item.received / item.file.size : item.state === 'complete' ? 1 : 0;
+        item.status.textContent = (item.state === 'complete' ? 'Uploaded' : item.error || ({queued: 'Queued', connecting: 'Connecting', uploading: item.received === item.file.size ? 'Confirming save' : 'Uploading', canceled: 'Canceled'})[item.state]) + ' · ' + bytes(item.received) + ' / ' + bytes(item.file.size);
+        item.button.hidden = item.state === 'complete';
+        item.button.textContent = ['failed', 'canceled'].includes(item.state) ? 'Retry' : 'Cancel';
+      }
+      retry.disabled = !items.some(item => ['failed', 'canceled'].includes(item.state));
+      if (!items.length) return;
+      result.textContent = complete.length + ' of ' + items.length + ' files uploaded · ' + bytes(received) + ' / ' + bytes(total);
+      if (complete.length === items.length && insert.checked && window.term) {
+        const pending = complete.filter(item => !item.inserted);
+        if (pending.length) {
+          const quoted = pending.map(item => "'" + item.path.replaceAll("'", "'\\''") + "'").join(' ');
+          window.term.paste(' ' + quoted + ' ');
+          pending.forEach(item => { item.inserted = true; });
         }
-        return;
+        result.textContent += ' · Paths inserted. Close to return to your terminal.';
       }
-      if (event.data?.type !== 'sbt-upload-complete') return;
-      const paths = event.data.paths;
-      if (!Array.isArray(paths) || !paths.length || paths.some(path => typeof path !== 'string' ||
-          !path.startsWith('/'))) return;
-      clearTimeout(watchdog);
-      if (paths.some(path => /[\x00-\x1f\x7f]/.test(path))) {
-        frame.dataset.completed = 'true';
-        dialog.querySelector('#sbt-upload-result').textContent = 'Uploaded, but paths containing control characters cannot be inserted automatically.';
-        return;
+    }
+    function queue(item) {
+      item.state = 'queued'; item.received = 0; item.error = ''; update(); schedule();
+    }
+    function cancel(item) {
+      item.state = 'canceled'; item.error = ''; item.controller?.abort(); update();
+    }
+    function schedule() {
+      if (!dialog.open) return;
+      while (active < Number(concurrency.value)) {
+        const item = items.find(item => item.state === 'queued' && !item.running);
+        if (!item) break;
+        item.running = true; active++; run(item);
       }
-      frame.dataset.completed = 'true';
-      result.textContent = 'Uploaded: ' + paths.join(', ');
-      if (dialog.querySelector('#sbt-insert-paths').checked && window.term) {
-        // Quote shell metacharacters and separate from existing input. Never
-        // clear the composer or send a newline/Enter after inserting paths.
-        const quoted = paths.map(path => "'" + path.replaceAll("'", "'\\''") + "'").join(' ');
-        window.term.paste(' ' + quoted + ' ');
-        focusTerminalOnClose = true; dialog.close();
+    }
+    async function run(item) {
+      const controller = new AbortController(); item.controller = controller;
+      item.state = 'connecting'; update();
+      try {
+        for (let attempt = 0; ; attempt++) {
+          try {
+            item.path = await window.sharedTerminalUpload(item.file, {
+              signal: controller.signal,
+              onState: state => { item.state = state; update(); },
+              onProgress: received => { item.received = received; update(); }
+            });
+            item.state = 'complete'; break;
+          } catch (error) {
+            if (controller.signal.aborted || !error.retryableConnection || attempt > 0) throw error;
+          }
+        }
+      } catch (error) {
+        // A Retry click can queue an aborted item before its promise settles.
+        if (item.state !== 'queued') {
+          item.state = controller.signal.aborted ? 'canceled' : 'failed';
+          item.error = controller.signal.aborted ? '' : error.message;
+        }
+      } finally {
+        item.running = false; active--; update(); schedule();
       }
+    }
+    upload.addEventListener('click', () => { dialog.showModal(); update(); schedule(); });
+    dialog.querySelector('#sbt-choose').addEventListener('click', () => input.click());
+    input.addEventListener('change', () => {
+      for (const file of input.files) {
+        const row = document.createElement('li'); row.className = 'sbt-file';
+        const name = document.createElement('strong'); name.textContent = file.name;
+        const progress = document.createElement('progress'); progress.max = 1; progress.value = 0; progress.setAttribute('aria-label', file.name + ' upload progress');
+        const status = document.createElement('span'), button = document.createElement('button'), savedPath = document.createElement('code');
+        savedPath.hidden = true;
+        button.className = 'sbt-button'; button.type = 'button';
+        const item = {file, row, progress, status, button, savedPath, state: 'queued', received: 0};
+        button.addEventListener('click', () => ['failed', 'canceled'].includes(item.state) ? queue(item) : cancel(item));
+        row.append(name, progress, status, button, savedPath); list.append(row); items.push(item);
+      }
+      input.value = ''; update(); schedule();
     });
-    dialog.querySelector('button').addEventListener('click', () => dialog.close());
+    retry.addEventListener('click', () => {
+      for (const item of items) if (['failed', 'canceled'].includes(item.state)) {
+        item.state = 'queued'; item.received = 0; item.error = '';
+      }
+      update(); schedule();
+    });
+    concurrency.addEventListener('change', schedule); insert.addEventListener('change', update);
+    dialog.querySelector('[aria-label="Close upload dialog"]').addEventListener('click', () => dialog.close());
     dialog.addEventListener('close', () => {
-      clearTimeout(watchdog);
-      dialog.querySelector('iframe')?.remove();
-      if (focusTerminalOnClose) window.term?.focus();
-      else upload.focus();
-      focusTerminalOnClose = false;
+      for (const item of items) if (!['complete', 'failed', 'canceled'].includes(item.state)) cancel(item);
+      window.term?.focus();
     });
+    window.addEventListener('pagehide', () => { for (const item of items) item.controller?.abort(); });
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', setup, {once: true});
   else setup();

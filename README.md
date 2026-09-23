@@ -16,7 +16,7 @@ Login, an open inbound port, a domain, or a Cloudflare account.
 - Mouse/trackpad scrollback: 50,000 lines in the first and subsequent windows.
 - Floating Upload button: select multiple files together; all completed host paths
   are inserted into terminal input without Enter.
-  Retry a stalled upload inside the dialog; the main terminal stays connected.
+  Persistent per-file progress, up to three concurrent uploads, and individual retry/cancel.
 - Cursor stays hidden during output redraws and returns when output settles or you type.
 - Persistent browser text selection: drag, release, then **⌘C** to copy on Mac.
 - Local Bash history suggestions: **Tab** or **Right Arrow** accepts ghost text.
@@ -134,17 +134,28 @@ python3 scripts/browser_terminal.py stop
 
 ## Upload documents
 
-Refresh the terminal page after upgrading. Click **↑ Upload**, then **Choose
-files**. Once all files are confirmed saved,
-their quoted host paths are inserted at the current terminal input cursor and
-the dialog closes. Existing draft text is preserved; **Enter is never sent**.
-Uncheck **Insert completed file paths** to upload without changing terminal input.
-Each transfer uses its own folder under `~/Downloads/terminal-uploads/`, avoiding
-filename collisions.
+Refresh the terminal page after upgrading. Click **↑ Upload → Choose files** and
+select multiple files. Each file keeps its own progress bar, acknowledged byte
+count, status, and saved path. Completed rows remain visible until you reload the
+page; closing and reopening the dialog keeps the list.
 
-The button opens a separate authenticated receiver, so you can upload while an
-agent is running. Only completed paths are inserted into the shared input; the
-upload command runs in the separate receiver. Chrome and Edge support the picker.
+Up to **three files upload concurrently** by default. **Simultaneous uploads** can
+be set to 1, 2, or 3. Parallel connections can reduce waiting on network round
+trips, but share your network and disk bandwidth; higher concurrency is not a
+guarantee of higher throughput. Progress advances when the Mac acknowledges
+written bytes, and a file becomes Uploaded only after it is fully saved.
+
+Cancel or retry individual files without restarting successful uploads or the
+main terminal. Closing cancels unfinished uploads; reopen and retry them without
+selecting the files again. Each file uses its own unique folder under
+`~/Downloads/terminal-uploads/`, avoiding filename collisions.
+
+Once all listed files succeed, their quoted paths are inserted into terminal
+input once, without clearing existing text or sending Enter. Uncheck **Insert
+completed paths** to opt out. The dialog stays open so you can review every file;
+Close returns focus to your terminal. Uploads use independent authenticated
+connections through the same ttyd/Cloudflare URL and password, without another
+server or account. The button uses the browser's standard multi-file picker.
 
 For uploads into the shell's current directory instead, run at the **shell prompt**:
 
@@ -239,7 +250,9 @@ Set `PLAYWRIGHT_MODULE` to an installed Playwright module path if necessary. Thi
 uses a separate authenticated loopback terminal and synthetic text, checking drag
 release, clipboard copying, Ctrl+C delivery, Shift+Enter/Enter delivery through
 tmux, modifier and IME handling, Command-click link opening without shell input,
-and wheel scrollback.
+and wheel scrollback. The upload test transfers real binary files concurrently,
+checks persistent progress and exact saved bytes, and exercises independent
+failures, cancellation, timeouts, retries, and safe path insertion.
 
 ## Credits
 

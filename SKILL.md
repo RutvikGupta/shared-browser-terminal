@@ -79,14 +79,18 @@ publish an old unauthenticated listener such as port 7681.
   **Ctrl+R** searches history. New windows/splits inherit this configuration.
   Existing local shells must flush history before other shells can import it;
   a new terminal is not required. Details: [history and completion](docs/usage.md#suggestions-and-completion).
-- Floating **↑ Upload**, then **Choose files** supports multiple files in one
-  transfer (⌘-click on Mac, Ctrl-click elsewhere, or Shift-click a range) to
-  `~/Downloads/terminal-uploads/upload-…/` through a separate authenticated
-  connection. After confirmed completion, quoted paths are pasted at the current
-  terminal input cursor without Enter or clearing draft text. The upload dialog
-  has an opt-out checkbox and **Retry upload** for stalled/canceled uploads.
-  Connection setup retries once after 15 seconds; active transfers require a
-  manual retry. Do not start an upload unless the user identifies files. [Upload guide](docs/usage.md#upload-documents).
+- **↑ Upload → Choose files** supports multiple files, up to **3 concurrent
+  transfers** (adjustable 1–3), and persistent per-file progress/status/path rows.
+  Bytes reflect host acknowledgements, and Uploaded requires a confirmed save.
+  Each file goes under its own `~/Downloads/terminal-uploads/upload-…/` folder
+  through a separate authenticated connection on the same URL. Retry/cancel
+  affects individual files; completed files are retained, not retransmitted.
+  The dialog stays open after completion. Closing cancels unfinished transfers,
+  and reopening preserves the list until page reload. Once all listed files
+  succeed, quoted paths are inserted once without Enter or clearing draft text;
+  the checkbox opts out. Startup retries once before a receiver accepts a file;
+  active failures require manual retry. Do not select/upload files unless the
+  user identifies them. [Upload guide](docs/usage.md#upload-documents).
 - Start a regular shell. Do not automatically `codex resume` the desktop chat;
   that starts another interface and can trigger the conversation ownership lock.
   Users run CLI agents inside the shared shell and attach from either laptop.

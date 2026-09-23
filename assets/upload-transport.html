@@ -1,0 +1,100 @@
+<script id="shared-terminal-upload-transport">
+(() => {
+  // ttyd: initial AuthToken JSON, then binary frames prefixed with ASCII '0'.
+  // Acknowledged bytes come from the receiver, not browser socket buffering.
+  window.sharedTerminalUpload = async (file, {signal, onProgress, onState}) => {
+    const tokenUrl = new URL('token', location.href);
+    let response;
+    try {
+      response = await fetch(tokenUrl, {credentials: 'same-origin', cache: 'no-store', signal: AbortSignal.any([signal, AbortSignal.timeout(15000)])});
+    } catch (error) {
+      error.retryableConnection = !signal.aborted;
+      throw error;
+    }
+    if (!response.ok) throw new Error('Upload authentication failed. Reload and sign in again.');
+    const {token} = await response.json();
+    if (signal.aborted) throw new DOMException('Canceled', 'AbortError');
+    return new Promise((resolve, reject) => {
+      const url = new URL('ws', location.href);
+      url.protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+      url.search = '?arg=upload-stream';
+      const socket = new WebSocket(url, ['tty']);
+      socket.binaryType = 'arraybuffer';
+      const encoder = new TextEncoder(), decoder = new TextDecoder();
+      const chunkSize = 64 * 1024, windowSize = 4 * chunkSize;
+      let buffer = '', accepted = false, settled = false, sent = 0, acknowledged = 0, pumping = false, timer;
+      function finish(error, path) {
+        if (settled) return;
+        settled = true; clearTimeout(timer);
+        signal.removeEventListener('abort', cancel);
+        socket.close();
+        if (error) { error.retryableConnection = !accepted && !signal.aborted && !error.permanent; reject(error); }
+        else resolve(path);
+      }
+      function watch(milliseconds) {
+        clearTimeout(timer);
+        timer = setTimeout(() => finish(new Error('Upload connection timed out. Retry this file.')), milliseconds);
+      }
+      function cancel() { finish(new DOMException('Canceled', 'AbortError')); }
+      function send(data) {
+        const packet = new Uint8Array(data.length + 1);
+        packet[0] = 48; packet.set(data, 1); socket.send(packet);
+      }
+      async function pump() {
+        if (pumping || settled) return;
+        pumping = true;
+        try {
+          while (!settled && sent < file.size && sent - acknowledged < windowSize) {
+            const end = Math.min(sent + chunkSize, file.size);
+            const bytes = new Uint8Array(await file.slice(sent, end).arrayBuffer());
+            if (settled) return;
+            if (bytes.length !== end - sent) throw new Error('Could not read the selected file.');
+            send(bytes); sent = end;
+          }
+        } catch (error) { finish(error); }
+        finally { pumping = false; }
+      }
+      function message(data) {
+        if (data.type === 'error') {
+          const error = new Error(data.message || 'Upload receiver failed.');
+          error.permanent = true; throw error;
+        }
+        if (data.type === 'ready' && data.version === 1 && !accepted) {
+          send(encoder.encode(JSON.stringify({version: 1, name: file.name, size: file.size}) + '\n'));
+        } else if (data.type === 'accepted' && !accepted && data.size === file.size) {
+          accepted = true; watch(90000); onState('uploading'); pump();
+        } else if (data.type === 'progress' && accepted) {
+          if (!Number.isSafeInteger(data.bytes) || data.bytes < acknowledged || data.bytes > sent) throw new Error('Invalid upload acknowledgement.');
+          acknowledged = data.bytes; watch(90000); onProgress(acknowledged); pump();
+        } else if (data.type === 'saved' && accepted) {
+          if (data.bytes !== file.size || sent !== file.size || typeof data.path !== 'string' ||
+              !data.path.startsWith('/') || /[\x00-\x1f\x7f]/.test(data.path)) throw new Error('Invalid upload completion.');
+          onProgress(file.size); finish(null, data.path);
+        } else throw new Error('Unexpected upload response.');
+      }
+      signal.addEventListener('abort', cancel, {once: true});
+      if (signal.aborted) { cancel(); return; }
+      watch(15000);
+      socket.addEventListener('open', () => {
+        if (!settled) socket.send(encoder.encode(JSON.stringify({AuthToken: token, columns: 80, rows: 24})));
+      });
+      socket.addEventListener('message', event => {
+        if (settled) return;
+        try {
+          const data = new Uint8Array(event.data);
+          if (data[0] !== 48) return; // ttyd title/preferences messages
+          buffer += decoder.decode(data.subarray(1), {stream: true});
+          let end;
+          while (!settled && (end = buffer.indexOf('\n')) !== -1) {
+            const line = buffer.slice(0, end); buffer = buffer.slice(end + 1);
+            if (line.trim()) message(JSON.parse(line));
+          }
+          if (buffer.length > 8192) throw new Error('Invalid upload response size.');
+        } catch (error) { finish(error); }
+      });
+      socket.addEventListener('close', () => finish(new Error('Upload disconnected. Retry this file.')));
+      socket.addEventListener('error', () => finish(new Error('Could not connect the upload.')));
+    });
+  };
+})();
+</script>

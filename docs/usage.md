@@ -241,43 +241,52 @@ inside a Codex/Claude chat composer.
 
 ## Upload documents
 
-Click **↑ Upload** at the top-right, then **Choose files** in the dialog. Select
-multiple files with **⌘-click** on Mac, **Ctrl-click** on Windows/Linux, or
-**Shift-click** for a range, then confirm the picker. All selected files upload
-together, and all saved paths are inserted after the complete batch succeeds.
+Click **↑ Upload → Choose files**. Use ⌘-click on Mac, Ctrl-click on Windows/Linux,
+or Shift-click for a range. All files appear in one persistent list, with queued,
+connecting, uploading, uploaded, canceled, or failed status. Each row shows its
+own progress bar, acknowledged bytes, and saved path. Completed rows stay visible
+while other files upload, and survive closing/reopening the dialog (until page
+reload). Closing returns keyboard focus to the terminal.
 
-This uses a separate authenticated terminal connection and saves into a unique folder
-under `~/Downloads/terminal-uploads/`. After the receiver confirms all files were
-saved, their quoted host paths are pasted at the main terminal’s input cursor.
-Existing draft text is preserved and **Enter is never sent**. The dialog then
-closes and the terminal regains focus. This does not restart your agent.
+**Simultaneous uploads** defaults to 3; choose 1 or 2 to reduce concurrency. Each
+file uses a separate authenticated WebSocket on the existing terminal URL. The
+receiver saves into its own unique folder under `~/Downloads/terminal-uploads/`.
+This can reduce per-file round-trip waiting, but all connections share bandwidth
+and disk capacity; no fixed speed improvement is promised.
 
-Uncheck **Insert completed file paths** to leave terminal input unchanged.
-Canceled, failed, or incomplete transfers do not insert paths. Filenames with
-control characters are saved but are not automatically inserted. Spaces, Unicode,
-apostrophes, and shell metacharacters are quoted as literal path text.
+Progress reports bytes acknowledged after writing on the Mac. Files are labeled
+Uploaded only after the receiver flushes the complete file to disk and publishes
+its final path. A zero-byte file still requires that final confirmation. The
+client streams 64 KiB chunks with at most 256 KiB outstanding per connection;
+it does not load whole files into memory. Partial files are removed on ordinary
+disconnect/cancellation or a receiver timeout. A force-killed host process or
+power loss can leave a hidden partial file.
 
-If the upload dialog gets stuck, click **Retry upload** inside it. This creates a
-fresh upload connection without reloading the main terminal or disturbing your
-agent/draft. Retry cancels any unfinished transfer and you choose the files again;
-partial files can remain in the previous upload directory. Completed paths are
-inserted only after a confirmed successful transfer.
+**Cancel** affects only its file; **Retry** restarts only a failed or canceled
+file. **Retry failed files** handles all failed/canceled rows. Completed files
+are not retransmitted. Closing the dialog cancels queued/active transfers;
+reopening retains the selected File objects so Retry works without reselection.
+The main terminal and its agent remain connected throughout.
 
-A connection that has not reached **Choose files** retries automatically once
-after 15 seconds, then shows an error if still unavailable. After file selection
-starts, transfers are never restarted automatically; after 60 seconds the dialog
-offers guidance for a stuck picker or transfer. Cancellation/failure is reported
-immediately when the receiver exits. The Retry button is always available.
+Startup waits up to 15 seconds and retries once if no receiver has accepted the
+file. Active uploads fail after 90 seconds without an acknowledgement and require
+manual retry, preventing silent restarts of an in-progress transfer. If the
+hosting Mac is asleep/offline, it must become reachable before retry can work.
 
-Wait for completion before closing; closing mid-transfer cancels the
-receiver and can leave a partial file. Reopen the dialog to upload more files.
-Chrome and Edge support the native file picker used by this flow.
+When every listed file succeeds, completed paths not already inserted are pasted
+at the current terminal input cursor. Existing draft text is preserved; Enter is
+never sent. The dialog remains open for review. Uncheck **Insert completed paths**
+to opt out. A failed/canceled file prevents automatic batch insertion until it is
+successfully retried. Filenames containing path separators or control characters
+are rejected; spaces, Unicode, apostrophes, and shell metacharacters are preserved
+and quoted as literal path text. Files are never overwritten.
 
-The helper adds a small control to the page embedded in your installed ttyd,
-using a generated `index.html` in the private runtime directory. No third-party
-JavaScript bundle is committed or fetched from a CDN. URL arguments select only
-normal attachment or the upload receiver; they cannot specify a shell command or
-an arbitrary upload destination. Both connections use the same authentication.
+The page and transfer code come from this local skill and the installed ttyd
+binary, without CDN scripts. URL arguments select fixed handlers, not arbitrary
+commands or destinations. New uploads use `arg=upload-stream`; the legacy
+`arg=upload` and command-line trzsz receiver remain available. Both upload modes
+are behind the same ttyd password and origin checks. The streaming mode uses
+[ttyd's terminal WebSocket framing](https://github.com/tsl0922/ttyd/blob/main/html/src/components/terminal/xterm/index.ts).
 
 The command-line alternative below lets you choose another destination.
 The host needs `brew install trzsz-go`. The helper enables ttyd's `enableTrzsz`
