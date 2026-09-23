@@ -100,17 +100,23 @@ terminal.restart_ttyd(state,config)
     assert.equal(copying,'1','wheel must still enter tmux scrollback');
     assert(await page.getByRole('button',{name:'Upload documents',exact:true}).isVisible());
     execFileSync('tmux',['send-keys','-X','-t','selection-test:0.0','cancel'],{env});
-    await page.waitForFunction(()=>window.term.options.theme.cursor !== '#00000000');
+    // Sample through real redraws and then idle, without any keyboard input.
+    await page.evaluate(() => {
+      window.cursorSamples=[];
+      window.cursorSampler=setInterval(()=>window.cursorSamples.push(window.term.options.theme.cursor),10);
+    });
     const cursor=await page.evaluate(()=>window.term.options.theme.cursor);
-    // Trigger redraws from the synthetic program, through real tmux/ttyd.
+    assert(cursor && cursor !== '#00000000','caret starts with a visible color');
     execFileSync('tmux',['send-keys','-t','selection-test:0.0','-l','r'],{env});
-    await page.waitForFunction(()=>window.term.options.theme.cursor === '#00000000');
-    await page.waitForFunction(expected=>window.term.options.theme.cursor === expected,cursor);
-    execFileSync('tmux',['send-keys','-t','selection-test:0.0','-l','r'],{env});
-    await page.waitForFunction(()=>window.term.options.theme.cursor === '#00000000');
-    await page.keyboard.type('x');
-    assert.equal(await page.evaluate(()=>window.term.options.theme.cursor),cursor,'typing restores caret during redraw');
-    console.log('PASS: cursor hidden during real tmux output bursts, restored after output settles and immediately on input.');
+    await page.waitForTimeout(1600);
+    const samples=await page.evaluate(() => {
+      clearInterval(window.cursorSampler);
+      return window.cursorSamples;
+    });
+    assert(samples.length>30,'observed output and idle periods');
+    assert(samples.every(color=>color===cursor),'browser must not hide the caret during redraws or idle');
+    assert.equal(await page.evaluate(()=>window.term.options.cursorBlink),false,'steady cursor remains enabled');
+    console.log('PASS: caret color remains visible through real tmux redraws and idle without typing.');
     console.log('PASS: forward/reverse drag persists; Command+C and Ctrl+Shift+C copy exact text without shell input; Ctrl+C interrupts; wheel scrollback and Upload remain available.');
   } finally {
     if(browser)await browser.close();

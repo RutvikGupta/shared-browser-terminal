@@ -146,12 +146,10 @@ than a toolbar. At an idle shell, Ctrl+L redraws without deleting typed input.
 
 ## Cursor during agent output
 
-The browser suppresses intermediate caret positions while terminal output is
-redrawing, then restores the caret after 180 ms without new output. Typing restores
-it immediately and keeps it visible through the resulting input echo. This
-reduces cursor flicker from Codex/tmux redraws without changing the agent process,
-its animations, or terminal input. It does not make whole-screen updates atomic.
-Refresh the browser after upgrading to load this behavior.
+The browser uses a steady, non-blinking caret and does not hide it on idle or
+output timers. Applications still control cursor visibility through normal
+terminal escape sequences. Refresh existing tabs after upgrading to remove the
+previous redraw-hiding workaround.
 
 ## Highlight and copy
 
