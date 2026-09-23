@@ -251,6 +251,18 @@ Canceled, failed, or incomplete transfers do not insert paths. Filenames with
 control characters are saved but are not automatically inserted. Spaces, Unicode,
 apostrophes, and shell metacharacters are quoted as literal path text.
 
+If the upload dialog gets stuck, click **Retry upload** inside it. This creates a
+fresh upload connection without reloading the main terminal or disturbing your
+agent/draft. Retry cancels any unfinished transfer and you choose the files again;
+partial files can remain in the previous upload directory. Completed paths are
+inserted only after a confirmed successful transfer.
+
+A connection that has not reached **Choose files** retries automatically once
+after 15 seconds, then shows an error if still unavailable. After file selection
+starts, transfers are never restarted automatically; after 60 seconds the dialog
+offers guidance for a stuck picker or transfer. Cancellation/failure is reported
+immediately when the receiver exits. The Retry button is always available.
+
 Wait for completion before closing; closing mid-transfer cancels the
 receiver and can leave a partial file. Reopen the dialog to upload more files.
 Chrome and Edge support the native file picker used by this flow.

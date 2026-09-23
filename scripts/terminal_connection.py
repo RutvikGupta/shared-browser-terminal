@@ -59,6 +59,7 @@ def receive_upload(command):
             print('\033]777;sbt-upload-complete;' + receipt + '\007', end='', flush=True)
         else:
             print('\r\nNo completed upload paths were inserted.', flush=True)
+            print('\033]777;sbt-upload-failed\007', end='', flush=True)
         if not any(destination.iterdir()):
             destination.rmdir()
     finally:

@@ -96,7 +96,42 @@ terminal.restart_ttyd(state,config)
     });
     assert.equal(await page.evaluate(()=>window.uploadReceipts.length),2);
     assert.equal(fs.readFileSync(input,'utf8'),expected);
-    console.log('PASS: multiple actual uploads, Unicode/spaces/quotes, exact saved bytes, existing draft preserved, no Enter, opt-out, unique duplicate destinations, and cancellation.');
+    await page.waitForFunction(()=>document.querySelector('#sbt-upload-result').textContent.includes('canceled or failed'));
+    // Recover a canceled picker without reloading the main terminal.
+    await page.getByRole('button',{name:'Retry upload',exact:true}).click();
+    await page.frameLocator('iframe').getByRole('button',{name:'Choose files',exact:true}).click();
+    await page.waitForFunction(()=>window.uploadReceipts.length===3,{},{timeout:20000});
+    (await page.evaluate(()=>window.uploadReceipts[2])).forEach(p=>receivedDirs.add(path.dirname(p)));
+    assert.equal(fs.readFileSync(input,'utf8'),expected,'retry preserves opt-out and draft');
+    await page.getByRole('button',{name:'Close upload dialog'}).click();
+    // Simulate failed iframe loads. Only startup is automatically retried, once.
+    await page.clock.install();
+    await context.route('**/*arg=upload*',route=>route.abort());
+    await page.getByRole('button',{name:'Upload documents',exact:true}).click();
+    const firstFrame=await page.locator('iframe').elementHandle();
+    await page.clock.fastForward(15001);
+    assert.equal(await firstFrame.evaluate(el=>el.isConnected),false,'startup timeout replaces the failed upload frame');
+    const retryFrame=await page.locator('iframe').elementHandle();
+    await page.clock.fastForward(15001);
+    assert.equal(await retryFrame.evaluate(el=>el.isConnected),true,'automatic retries are bounded');
+    assert.match(await page.locator('#sbt-upload-result').textContent(),/could not connect/);
+    await context.unroute('**/*arg=upload*');
+    await page.getByRole('button',{name:'Retry upload',exact:true}).click();
+    await page.frameLocator('iframe').getByRole('button',{name:'Choose files',exact:true}).waitFor();
+    const stuck=page.frames().find(frame=>frame.url().includes('arg=upload'));
+    await stuck.evaluate(()=>{window.showOpenFilePicker=()=>new Promise(()=>{});});
+    await page.frameLocator('iframe').getByRole('button',{name:'Choose files',exact:true}).click();
+    await page.waitForFunction(()=>document.querySelector('#sbt-dialog iframe').dataset.state==='started');
+    const transferFrame=await page.locator('iframe').elementHandle();
+    await page.clock.fastForward(60001);
+    assert.equal(await transferFrame.evaluate(el=>el.isConnected),true,'slow selection or transfer is never automatically canceled');
+    assert.match(await page.locator('#sbt-upload-result').textContent(),/Still waiting/);
+    await page.getByRole('button',{name:'Retry upload',exact:true}).click();
+    await page.frameLocator('iframe').getByRole('button',{name:'Choose files',exact:true}).click();
+    await page.waitForFunction(()=>window.uploadReceipts.length===4,{},{timeout:20000});
+    (await page.evaluate(()=>window.uploadReceipts[3])).forEach(p=>receivedDirs.add(path.dirname(p)));
+    assert.equal(fs.readFileSync(input,'utf8'),expected,'recovered uploads never alter opted-out terminal input');
+    console.log('PASS: real uploads, exact bytes and quoted paths, preserved draft, no Enter, opt-out, unique destinations, cancellation/retry, bounded startup recovery, and stalled picker recovery without reloading the main terminal.');
   } finally {
     if(browser)await browser.close();
     for(const folder of receivedDirs)fs.rmSync(folder,{recursive:true,force:true});

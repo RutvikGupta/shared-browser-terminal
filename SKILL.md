@@ -82,7 +82,9 @@ publish an old unauthenticated listener such as port 7681.
   `~/Downloads/terminal-uploads/upload-…/` through a separate authenticated
   connection. After confirmed completion, quoted paths are pasted at the current
   terminal input cursor without Enter or clearing draft text. The upload dialog
-  has an opt-out checkbox. Do not start an upload unless the user identifies files. [Upload guide](docs/usage.md#upload-documents).
+  has an opt-out checkbox and **Retry upload** for stalled/canceled uploads.
+  Connection setup retries once after 15 seconds; active transfers require a
+  manual retry. Do not start an upload unless the user identifies files. [Upload guide](docs/usage.md#upload-documents).
 - Start a regular shell. Do not automatically `codex resume` the desktop chat;
   that starts another interface and can trigger the conversation ownership lock.
   Users run CLI agents inside the shared shell and attach from either laptop.
