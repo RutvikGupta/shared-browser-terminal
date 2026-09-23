@@ -241,8 +241,12 @@ inside a Codex/Claude chat composer.
 
 ## Upload documents
 
-Click **↑ Upload** at the top-right, then **Choose files** in the dialog. This
-uses a separate authenticated terminal connection and saves into a unique folder
+Click **↑ Upload** at the top-right, then **Choose files** in the dialog. Select
+multiple files with **⌘-click** on Mac, **Ctrl-click** on Windows/Linux, or
+**Shift-click** for a range, then confirm the picker. All selected files upload
+together, and all saved paths are inserted after the complete batch succeeds.
+
+This uses a separate authenticated terminal connection and saves into a unique folder
 under `~/Downloads/terminal-uploads/`. After the receiver confirms all files were
 saved, their quoted host paths are pasted at the main terminal’s input cursor.
 Existing draft text is preserved and **Enter is never sent**. The dialog then

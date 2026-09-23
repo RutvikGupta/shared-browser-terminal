@@ -79,7 +79,8 @@ publish an old unauthenticated listener such as port 7681.
   **Ctrl+R** searches history. New windows/splits inherit this configuration.
   Existing local shells must flush history before other shells can import it;
   a new terminal is not required. Details: [history and completion](docs/usage.md#suggestions-and-completion).
-- Floating **↑ Upload**, then **Choose files** transfers to
+- Floating **↑ Upload**, then **Choose files** supports multiple files in one
+  transfer (⌘-click on Mac, Ctrl-click elsewhere, or Shift-click a range) to
   `~/Downloads/terminal-uploads/upload-…/` through a separate authenticated
   connection. After confirmed completion, quoted paths are pasted at the current
   terminal input cursor without Enter or clearing draft text. The upload dialog

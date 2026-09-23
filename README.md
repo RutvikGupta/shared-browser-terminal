@@ -14,7 +14,8 @@ Login, an open inbound port, a domain, or a Cloudflare account.
 - Password-protected browser access with a random password and HTTPS public URL.
 - Warp Phenomenon terminal colors, 14px text, a steady cursor without idle hiding, and no tmux status bar.
 - Mouse/trackpad scrollback: 50,000 lines in the first and subsequent windows.
-- Floating Upload button: completed host paths are inserted into terminal input without Enter.
+- Floating Upload button: select multiple files together; all completed host paths
+  are inserted into terminal input without Enter.
   Retry a stalled upload inside the dialog; the main terminal stays connected.
 - Cursor stays hidden during output redraws and returns when output settles or you type.
 - Persistent browser text selection: drag, release, then **⌘C** to copy on Mac.

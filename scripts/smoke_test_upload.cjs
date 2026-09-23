@@ -39,8 +39,9 @@ terminal.restart_ttyd(state,config)
     const context=await browser.newContext({httpCredentials:{username:login.slice(0,split),password:login.slice(split+1)},viewport:{width:1200,height:800}});
     const files=[{name:"report ' résumé $(echo test).txt",text:'Synthetic first document.\n'},{name:'second report.txt',text:'Synthetic second document.\n'}];
     await context.addInitScript(files=>{
-      window.showOpenFilePicker=async()=>{
+      window.showOpenFilePicker=async options=>{
         if(!navigator.userActivation.isActive)throw new Error('No file picker user activation');
+        if(options?.multiple !== true)throw new Error('File picker must allow multiple selection');
         return files.map(file=>({kind:'file',name:file.name,getFile:async()=>new File([file.text],file.name,{type:'text/plain'})}));
       };
     },files);
