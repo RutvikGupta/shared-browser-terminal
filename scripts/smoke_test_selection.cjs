@@ -69,6 +69,27 @@ terminal.restart_ttyd(state,config)
     await page.keyboard.press('Control+c');
     for(let i=0;i<50&&!fs.existsSync(path.join(state,'input.bin'));i++) await new Promise(r=>setTimeout(r,20));
     assert.equal(fs.readFileSync(path.join(state,'input.bin')).toString('hex'),'03','Ctrl+C must still reach the program');
+    await page.keyboard.press('Shift+Enter');
+    await page.keyboard.press('Enter');
+    for(let i=0;i<50&&fs.statSync(path.join(state,'input.bin')).size<4;i++) await new Promise(r=>setTimeout(r,20));
+    assert.equal(fs.readFileSync(path.join(state,'input.bin')).toString('hex'),'031b0d0d','Shift+Enter sends one Alt+Enter through tmux; ordinary Enter stays CR');
+    // Observe our capture handler before xterm handles ignored events.
+    const ignored=await page.evaluate(() => {
+      const results=[];
+      const observe=event=>{results.push(event.defaultPrevented);event.stopImmediatePropagation();};
+      document.addEventListener('keydown',observe,true);
+      for(const extra of [{altKey:true},{ctrlKey:true},{metaKey:true},{isComposing:true},{keyCode:229}]) {
+        document.activeElement.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',shiftKey:true,bubbles:true,cancelable:true,...extra}));
+      }
+      document.removeEventListener('keydown',observe,true);
+      return results;
+    });
+    assert.deepEqual(ignored,[false,false,false,false,false],'other modifiers and IME confirmation bypass the mapping');
+    await page.getByRole('button',{name:'Upload documents',exact:true}).focus();
+    const outside=await page.evaluate(() => document.activeElement.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',shiftKey:true,bubbles:true,cancelable:true})));
+    assert(outside,'Shift+Enter outside the terminal is not intercepted');
+    await page.evaluate(()=>window.term.focus());
+    console.log('PASS: Shift+Enter newline alias survives tmux; Enter, other modifiers, IME, and non-terminal controls are preserved.');
     await page.mouse.wheel(0,-500);
     let copying='';
     for(let i=0;i<50;i++) {

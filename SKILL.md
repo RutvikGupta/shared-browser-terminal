@@ -69,6 +69,9 @@ publish an old unauthenticated listener such as port 7681.
   redraws and restores the caret after output settles or when you type.
 - Drag to highlight text; the highlight stays after release. **⌘C** copies on
   Mac (**Ctrl+Shift+C** elsewhere). **Ctrl+C** still interrupts commands.
+- **Shift+Enter** adds a newline in the Codex composer; Enter submits normally.
+  The browser sends Codex's Alt+Enter alias through tmux. Other programs follow
+  their own Alt+Enter binding. Refresh existing tabs after upgrading.
 - Homebrew Bash with ble.sh suggestions; **Tab/Right** accepts ghost text,
   **Ctrl+R** searches history. New windows/splits inherit this configuration.
   Existing local shells must flush history before other shells can import it;

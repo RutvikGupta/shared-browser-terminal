@@ -103,6 +103,7 @@ scripts from a normal checkout without installing a Codex skill.
 | Accept the visible inline suggestion | Tab or Right Arrow at the end of the input |
 | Complete a command/path when no suggestion is visible | Tab |
 | Search local command history | Ctrl+R |
+| Add a newline in the Codex composer | Shift+Enter |
 | Run the accepted/typed command | Enter |
 | Scroll terminal output | Mouse wheel or trackpad |
 | Open tmux history explicitly | Ctrl+B, then `[` |
@@ -232,7 +233,8 @@ node scripts/smoke_test_upload.cjs
 
 Set `PLAYWRIGHT_MODULE` to an installed Playwright module path if necessary. This
 uses a separate authenticated loopback terminal and synthetic text, checking drag
-release, clipboard copying, Ctrl+C delivery, and wheel scrollback.
+release, clipboard copying, Ctrl+C delivery, Shift+Enter/Enter delivery through
+tmux, modifier and IME handling, and wheel scrollback.
 
 ## Credits
 

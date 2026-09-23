@@ -1,0 +1,14 @@
+<script id="shared-terminal-keyboard-script">
+(() => {
+  document.addEventListener('keydown', event => {
+    const term = window.term;
+    if (event.key !== 'Enter' || !event.shiftKey || event.altKey ||
+        event.ctrlKey || event.metaKey || event.isComposing || event.keyCode === 229 ||
+        !term?.element?.contains(document.activeElement)) return;
+    // Legacy terminal encoding loses Shift on Enter. Alt+Enter is Codex's
+    // newline alias and survives tmux without extended keyboard negotiation.
+    event.preventDefault(); event.stopImmediatePropagation();
+    term.input('\x1b\r', true);
+  }, true);
+})();
+</script>

@@ -169,6 +169,19 @@ handling instead. Browser/application shortcuts with modifiers are preserved.
 
 Refresh an existing browser tab after upgrading to load the selection controls.
 
+## Multiline input in Codex
+
+Press **Shift+Enter** to add a newline in the Codex composer. **Enter** still
+submits the prompt. Refresh existing browser tabs after upgrading.
+
+The browser maps Shift+Enter to Alt+Enter while the terminal has keyboard focus.
+This uses [Codex's alternate newline binding](https://github.com/openai/codex/pull/20535)
+through tmux without requiring extended keyboard support. It does not paste or
+submit the draft. Other programs, including shells, follow their own Alt+Enter
+binding; this is not a universal multiline editor. Custom Codex keymaps must keep
+Alt+Enter assigned to insert-newline. IME confirmation, other modifiers, and
+controls outside the terminal retain their normal handling.
+
 ## Suggestions and completion
 
 Homebrew Bash loads the user's existing login configuration and then ble.sh.
