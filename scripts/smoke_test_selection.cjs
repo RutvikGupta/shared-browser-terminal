@@ -50,8 +50,10 @@ terminal.restart_ttyd(state,config)
       await page.mouse.move(start.x,start.y); await page.mouse.down();
       await page.mouse.move(end.x,end.y,{steps:8}); await page.mouse.up();
     };
+    await page.evaluate(()=>navigator.clipboard.writeText('keep my clipboard'));
     await drag();
     assert.equal(await page.evaluate(()=>window.term.getSelection()),location.expected,'highlight survives release');
+    assert.equal(await page.evaluate(()=>navigator.clipboard.readText()),'keep my clipboard','drag selection does not copy');
     await page.keyboard.press('Meta+c');
     assert.equal(await page.evaluate(()=>navigator.clipboard.readText()),location.expected,'Command+C copies selected text');
     assert.equal(await page.evaluate(()=>window.term.getSelection()),location.expected,'copy preserves highlight');
@@ -75,11 +77,20 @@ terminal.restart_ttyd(state,config)
         throw new Error('Missing test word: '+word);
       },word);
       // The second cell of a wide character must select the same word.
+      const clipboardBefore=await page.evaluate(()=>navigator.clipboard.readText());
       await page.mouse.dblclick(location.x+(target+(word==='你好'?1.5:0.5))*location.w,location.y+0.5*location.h);
       assert.equal(await page.evaluate(()=>window.term.getSelection()),word,'double-click selects '+word+' after release');
+      assert.equal(await page.evaluate(()=>navigator.clipboard.readText()),clipboardBefore,'double-click does not copy');
       await page.keyboard.press('Meta+c');
       assert.equal(await page.evaluate(()=>navigator.clipboard.readText()),word,'double-click selection is copyable');
     }
+    const beforeLine=await page.evaluate(()=>navigator.clipboard.readText());
+    await page.mouse.click(location.x+8.5*location.w,location.y+0.5*location.h,{clickCount:3});
+    const wholeLine=await page.evaluate(()=>window.term.buffer.active.getLine(window.term.buffer.active.viewportY).translateToString(true));
+    assert.equal(await page.evaluate(()=>window.term.getSelection()),wholeLine,'triple-click selects the whole line');
+    assert.equal(await page.evaluate(()=>navigator.clipboard.readText()),beforeLine,'triple-click does not copy');
+    await page.keyboard.press('Meta+c');
+    assert.equal(await page.evaluate(()=>navigator.clipboard.readText()),wholeLine,'explicit copy still copies a whole line');
     assert(!fs.existsSync(path.join(state,'input.bin')),'double-click and copy must not send terminal input');
     console.log('PASS: double-click selects words, including wide and combining characters, and Command+C copies them.');
     // External navigation is fulfilled locally: no real website is contacted.
@@ -160,6 +171,13 @@ terminal.restart_ttyd(state,config)
     });
     await page.mouse.dblclick(wrapped.x,wrapped.y);
     assert.equal(await page.evaluate(()=>window.term.getSelection()),'wrappedword','word selection spans a soft line wrap');
+    const beforeWrapped=await page.evaluate(()=>navigator.clipboard.readText());
+    await page.mouse.click(wrapped.x,wrapped.y,{clickCount:3});
+    const wrappedExpected=await page.evaluate(()=>' '.repeat(window.term.cols-4)+'wrappedword');
+    assert.equal(await page.evaluate(()=>window.term.getSelection()),wrappedExpected,'triple-click includes the entire wrapped logical line');
+    assert.equal(await page.evaluate(()=>navigator.clipboard.readText()),beforeWrapped,'wrapped line selection does not copy');
+    console.log('PASS: triple-click selects full logical lines; drag, double-click, and triple-click leave the clipboard unchanged until explicit copy.');
+
 
     console.log('PASS: forward/reverse drag persists; Command+C and Ctrl+Shift+C copy exact text without shell input; Ctrl+C interrupts; wheel scrollback and Upload remain available.');
   } finally {

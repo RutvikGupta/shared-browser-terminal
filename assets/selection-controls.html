@@ -2,9 +2,15 @@
 (() => {
   // Use xterm's public selection API. tmux mouse reporting otherwise consumes
   // drag selection and clears its highlight when its copy mode exits.
-  let drag = null;
+  let drag = null, selecting = false;
   const screenFor = term => term?.element?.querySelector('.xterm-screen');
   const focused = term => term?.element?.contains(document.activeElement);
+  function updateSelection(action) {
+    // ttyd's selection-change listener calls execCommand('copy'). Suppress only
+    // those synchronous copies; explicit keyboard/menu copy still works.
+    selecting = true;
+    try { action(); } finally { selecting = false; }
+  }
   function cell(term, screen, event) {
     const rect = screen.getBoundingClientRect();
     const column = Math.max(0, Math.min(term.cols, Math.floor((event.clientX - rect.left) * term.cols / rect.width)));
@@ -15,13 +21,13 @@
     const {term, screen, anchor} = drag;
     const end = cell(term, screen, event);
     const first = Math.min(anchor, end);
-    term.select(first % term.cols, Math.floor(first / term.cols), Math.abs(end - anchor));
+    updateSelection(() => term.select(first % term.cols, Math.floor(first / term.cols), Math.abs(end - anchor)));
   }
   document.addEventListener('mousedown', event => {
     const term = window.term, screen = screenFor(term);
     if (event.button !== 0 || event.altKey || event.ctrlKey || event.metaKey || !screen?.contains(event.target)) return;
     event.preventDefault(); event.stopImmediatePropagation();
-    term.focus(); term.clearSelection();
+    term.focus(); updateSelection(() => term.clearSelection());
     drag = {term, screen, anchor: cell(term, screen, event)};
   }, true);
   document.addEventListener('mousemove', event => {
@@ -62,14 +68,24 @@
       while (end + 1 < cells.length && category(cells[end + 1]) === kind) end++;
     }
     const offset = cells[start].start;
-    term.select(offset % term.cols, Math.floor(offset / term.cols), cells[end].start + cells[end].width - offset);
+    updateSelection(() => term.select(offset % term.cols, Math.floor(offset / term.cols), cells[end].start + cells[end].width - offset));
+  }
+  function selectLine(term, screen, event) {
+    const buffer = term.buffer.active;
+    let first = Math.floor(cell(term, screen, event) / term.cols), last = first;
+    while (first > 0 && buffer.getLine(first)?.isWrapped) first--;
+    while (buffer.getLine(last + 1)?.isWrapped) last++;
+    updateSelection(() => term.select(0, first, (last - first + 1) * term.cols));
   }
   // xterm's normal click/word-selection handlers must not clear our selection.
   for (const type of ['click', 'dblclick']) {
     document.addEventListener(type, event => {
       if (event.button === 0 && !event.altKey && !event.ctrlKey && !event.metaKey && screenFor(window.term)?.contains(event.target)) {
         event.preventDefault(); event.stopImmediatePropagation();
-        if (type === 'dblclick') {
+        if (type === 'click' && event.detail >= 3) {
+          drag = null;
+          selectLine(window.term, screenFor(window.term), event);
+        } else if (type === 'dblclick' && event.detail === 2) {
           drag = null;
           selectWord(window.term, screenFor(window.term), event);
         }
@@ -78,6 +94,10 @@
   }
   window.addEventListener('blur', () => { drag = null; });
   document.addEventListener('copy', event => {
+    if (selecting) {
+      event.preventDefault(); event.stopImmediatePropagation();
+      return;
+    }
     const term = window.term;
     if (!focused(term) || !term.hasSelection() || !event.clipboardData) return;
     event.clipboardData.setData('text/plain', term.getSelection());
