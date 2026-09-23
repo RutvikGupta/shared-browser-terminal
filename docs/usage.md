@@ -280,12 +280,14 @@ file. Active uploads fail after 90 seconds without an acknowledgement and requir
 manual retry, preventing silent restarts of an in-progress transfer. If the
 hosting Mac is asleep/offline, it must become reachable before retry can work.
 
-When every listed file succeeds, completed paths not already inserted are pasted
+When all transfers settle, successfully saved paths not already inserted are pasted
 at the current terminal input cursor. Existing draft text is preserved; Enter is
-never sent. The dialog closes automatically once all listed files succeed; reopen Upload to
+never sent. The browser waits for tmux to leave history mode before pasting.
+If insertion fails, the popup retains the saved paths and offers **Insert paths**
+to retry without uploading again. Failed uploads do not block successful paths.
+The dialog closes automatically once all listed files succeed; reopen Upload to
 review retained rows. Failures keep the dialog open for retry. Uncheck **Insert paths**
-to opt out. A failed/canceled file prevents automatic batch insertion until it is
-successfully retried. Filenames containing path separators or control characters
+to opt out. Filenames containing path separators or control characters
 are rejected; spaces, Unicode, apostrophes, and shell metacharacters are preserved
 and quoted as literal path text. Files are never overwritten.
 

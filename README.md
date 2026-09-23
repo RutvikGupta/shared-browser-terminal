@@ -150,9 +150,13 @@ main terminal. Closing cancels unfinished uploads; reopen and retry them without
 selecting the files again. Each file uses its own unique folder under
 `~/Downloads/terminal-uploads/`, avoiding filename collisions.
 
-Once all listed files succeed, their quoted paths are inserted into terminal
-input once, without clearing existing text or sending Enter. Uncheck **Insert paths** to opt out. The dialog closes automatically after all listed files succeed and returns
-focus to your terminal. Reopen Upload to review the list; failures stay open for retry. Uploads use independent authenticated
+After the transfers finish, successfully saved paths are inserted into terminal
+input once, without clearing existing text or sending Enter. History mode is
+closed before insertion. If insertion fails, **Insert paths** retries without
+uploading again; a failed upload does not block paths from successful files.
+Uncheck **Insert paths** to opt out. The dialog closes automatically after all
+listed files succeed and their paths are inserted, returning focus to the terminal.
+Reopen Upload to review the list; failures stay open for retry. Uploads use independent authenticated
 connections through the same ttyd/Cloudflare URL and password, without another
 server or account. The button uses the browser's standard multi-file picker.
 

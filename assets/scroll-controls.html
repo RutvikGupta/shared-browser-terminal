@@ -27,6 +27,8 @@ body.sbt-scrolling .xterm-viewport::-webkit-scrollbar { display: none; }
     document.body.append(bar, bottom);
     let socket, state, busy = false, pending, dragging = null, stopped = false, reconnect, timeout;
     const encoder = new TextEncoder();
+    const awaited = [];
+    let inFlight;
     function render(position) {
       const history = state?.history || 0, height = state?.height || 1;
       const track = bar.clientHeight, size = Math.min(track, Math.max(24, track * height / (history + height)));
@@ -41,11 +43,31 @@ body.sbt-scrolling .xterm-viewport::-webkit-scrollbar { display: none; }
     }
     function request(action) { pending = action; flush(); }
     function flush() {
-      if (busy || !pending || socket?.readyState !== WebSocket.OPEN || !state) return;
-      const command = pending; pending = null; busy = true;
+      if (busy || (!pending && !awaited.length) || socket?.readyState !== WebSocket.OPEN || !state) return;
+      inFlight = awaited.shift();
+      const command = inFlight ? inFlight.command : pending;
+      if (!inFlight) pending = null;
+      busy = true;
       socket.send(encoder.encode('0' + JSON.stringify(command) + '\n'));
       clearTimeout(timeout); timeout = setTimeout(() => socket?.close(), 8000);
     }
+    function confirmed(command) {
+      return new Promise((resolve, reject) => {
+        if (!state || socket?.readyState !== WebSocket.OPEN) {
+          reject(new Error('Terminal is reconnecting. Retry inserting paths.')); return;
+        }
+        awaited.push({command, resolve, reject}); flush();
+      });
+    }
+    window.sharedTerminalPrepareInput = async () => {
+      pending = null; // Discard an older scroll gesture before returning to input.
+      const current = await confirmed({action: 'status'});
+      const ready = await confirmed({action: 'bottom', pane: current.pane});
+      if (ready.pane !== current.pane || ready.mode !== '') {
+        throw new Error('Return to your terminal input, then retry inserting paths.');
+      }
+      window.term?.scrollToBottom();
+    };
     async function connect() {
       if (stopped) return;
       try {
@@ -68,13 +90,21 @@ body.sbt-scrolling .xterm-viewport::-webkit-scrollbar { display: none; }
               if (!line.trim()) continue;
               const message = JSON.parse(line);
               clearTimeout(timeout); busy = false;
-              if (message.type === 'state') { state = message; render(); flush(); }
+              const completed = inFlight; inFlight = null;
+              if (message.type === 'state') {
+                state = message; render(); completed?.resolve(message);
+              } else completed?.reject(new Error('Could not reach terminal input. Retry inserting paths.'));
+              flush();
             }
             if (buffer.length > 8192) current.close();
           } catch { current.close(); }
         });
         current.addEventListener('close', () => {
-          clearTimeout(timeout); state = null; busy = false; pending = null; render();
+          clearTimeout(timeout); state = null; busy = false; pending = null;
+          const error = new Error('Terminal disconnected. Retry inserting paths.');
+          inFlight?.reject(error); inFlight = null;
+          for (const request of awaited.splice(0)) request.reject(error);
+          render();
           if (!stopped) reconnect = setTimeout(connect, 5000);
         });
         timeout = setTimeout(() => current.close(), 10000);

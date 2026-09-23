@@ -21,7 +21,7 @@
 .sbt-file .sbt-state { color: #789b88; text-align: center; }
 .sbt-file .sbt-error { grid-column: 1 / -1; color: #ae756f; font-size: 12px; }
 #sbt-dialog footer { color: #aaa; font-size: 12px; }
-#sbt-retry-upload { border: 0; color: #6f9ee8; background: transparent; cursor: pointer; }
+#sbt-retry-paths, #sbt-retry-upload { border: 0; color: #6f9ee8; background: transparent; cursor: pointer; }
 .sbt-sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
 @media (max-width: 480px) { .sbt-file { grid-template-columns: minmax(0,1fr) 48px 65px 28px; gap: 7px; } }
 </style>
@@ -35,13 +35,14 @@
     upload.textContent = '↑ Upload'; upload.setAttribute('aria-label', 'Upload documents');
     const dialog = document.createElement('dialog');
     dialog.id = 'sbt-dialog'; dialog.setAttribute('aria-labelledby', 'sbt-upload-title');
-    dialog.innerHTML = '<header><h2 id="sbt-upload-title">Upload</h2><button class="sbt-icon" type="button" aria-label="Close upload dialog">×</button></header><div id="sbt-drop"><button id="sbt-choose" class="sbt-button" type="button">Browse</button><p>or drop files here</p></div><input id="sbt-file-input" type="file" multiple hidden><ul id="sbt-files" aria-label="Upload progress"></ul><footer><label><input id="sbt-insert-paths" type="checkbox" checked> Insert paths</label><button id="sbt-retry-upload" type="button" hidden>Retry failed</button></footer><p id="sbt-upload-result" class="sbt-sr-only" role="status"></p>';
+    dialog.innerHTML = '<header><h2 id="sbt-upload-title">Upload</h2><button class="sbt-icon" type="button" aria-label="Close upload dialog">×</button></header><div id="sbt-drop"><button id="sbt-choose" class="sbt-button" type="button">Browse</button><p>or drop files here</p></div><input id="sbt-file-input" type="file" multiple hidden><ul id="sbt-files" aria-label="Upload progress"></ul><footer><label><input id="sbt-insert-paths" type="checkbox" checked> Insert paths</label><button id="sbt-retry-upload" type="button" hidden>Retry failed</button></footer><p id="sbt-path-error" role="alert" hidden></p><button id="sbt-retry-paths" type="button" hidden>Insert paths</button><p id="sbt-upload-result" class="sbt-sr-only" role="status"></p>';
     document.body.append(upload, dialog);
     const result = dialog.querySelector('#sbt-upload-result'), list = dialog.querySelector('#sbt-files');
     const input = dialog.querySelector('#sbt-file-input'), retry = dialog.querySelector('#sbt-retry-upload');
     const insert = dialog.querySelector('#sbt-insert-paths'), drop = dialog.querySelector('#sbt-drop');
     const items = [];
-    let active = 0, lastCompletedCount = 0;
+    let active = 0, lastCompletedCount = 0, finishing = false, insertionError = '';
+    const pathError = dialog.querySelector('#sbt-path-error'), retryPaths = dialog.querySelector('#sbt-retry-paths');
     const bytes = number => number < 1024 ? number + ' B' : number < 1024 ** 2 ? (number / 1024).toFixed(1) + ' KB' : (number / 1024 ** 2).toFixed(1) + ' MB';
     function update() {
       const complete = items.filter(item => item.state === 'complete');
@@ -63,18 +64,35 @@
       retry.hidden = !items.some(item => ['failed', 'canceled'].includes(item.state));
       if (!items.length) return;
       result.textContent = complete.length + ' of ' + items.length + ' uploaded';
-      if (complete.length === items.length && insert.checked && window.term) {
+      pathError.hidden = retryPaths.hidden = !insertionError;
+      pathError.textContent = insertionError;
+      const settled = items.every(item => ['complete', 'failed', 'canceled'].includes(item.state));
+      if (settled && complete.length > lastCompletedCount && dialog.open && !finishing && !insertionError) {
+        finish(complete);
+      }
+    }
+    async function finish(complete) {
+      finishing = true;
+      try {
         const pending = complete.filter(item => !item.inserted);
-        if (pending.length) {
+        if (insert.checked && pending.length) {
+          // Await tmux leaving copy mode; otherwise it can swallow pasted paths.
+          await window.sharedTerminalPrepareInput();
+          if (!dialog.open) return;
+          if (!window.term || window.term.options.disableStdin) {
+            throw new Error('Terminal is reconnecting. Retry inserting paths.');
+          }
           const quoted = pending.map(item => "'" + item.path.replaceAll("'", "'\\''") + "'").join(' ');
           window.term.paste(' ' + quoted + ' ');
           pending.forEach(item => { item.inserted = true; });
         }
-        result.textContent += '. Paths inserted.';
-      }
-      if (complete.length === items.length && complete.length > lastCompletedCount && dialog.open) {
         lastCompletedCount = complete.length;
-        dialog.close();
+        if (complete.length === items.length) dialog.close();
+      } catch (error) {
+        insertionError = error.message || 'Could not insert paths. Please retry.';
+      } finally {
+        finishing = false;
+        if (dialog.open) update();
       }
     }
     function queue(item) {
@@ -147,7 +165,8 @@
       }
       update(); schedule();
     });
-    insert.addEventListener('change', update);
+    insert.addEventListener('change', () => { insertionError = ''; update(); });
+    retryPaths.addEventListener('click', () => { insertionError = ''; update(); });
     dialog.querySelector('[aria-label="Close upload dialog"]').addEventListener('click', () => dialog.close());
     dialog.addEventListener('close', () => {
       for (const item of items) if (!['complete', 'failed', 'canceled'].includes(item.state)) cancel(item);

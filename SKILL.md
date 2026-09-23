@@ -90,9 +90,11 @@ publish an old unauthenticated listener such as port 7681.
   affects individual files; completed files are retained, not retransmitted.
   The dialog closes automatically when all files succeed; failures stay open.
   Closing manually cancels unfinished transfers,
-  and reopening preserves the list until page reload. Once all listed files
-  succeed, quoted paths are inserted once without Enter or clearing draft text;
-  the checkbox opts out. Startup retries once before a receiver accepts a file;
+  and reopening preserves the list until page reload. After transfers finish,
+  successfully saved paths are inserted once without Enter or clearing draft text.
+  Await leaving tmux history mode before pasting. Insertion errors retain paths
+  with an **Insert paths** retry; failed uploads must not block saved paths.
+  Keep the popup open if insertion fails. The checkbox opts out of insertion. Startup retries once before a receiver accepts a file;
   active failures require manual retry. Do not select/upload files unless the
   user identifies them. [Upload guide](docs/usage.md#upload-documents).
 - Start a regular shell. Do not automatically `codex resume` the desktop chat;

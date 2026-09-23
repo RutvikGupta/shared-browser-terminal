@@ -69,6 +69,8 @@ terminal.restart_ttyd(state,config)
         window.rowCounts.push(rows.length);
       },10);
     });
+    execFileSync('tmux',['copy-mode','-t','=selection-test:'],{env});
+    assert.equal(execFileSync('tmux',['display-message','-p','-t','=selection-test:','#{pane_mode}'],{env,encoding:'utf8'}).trim(),'copy-mode');
     await page.getByRole('button',{name:'Upload documents',exact:true}).click();
     assert(await page.locator('#sbt-file-input').getAttribute('multiple')!==null);
     assert.equal(await page.locator('#sbt-concurrency').count(),0,'parallelism is fixed without a setting');
@@ -91,7 +93,7 @@ terminal.restart_ttyd(state,config)
     const observation=await page.evaluate(()=>({max:window.maxUploads,partial:window.sawPartial}));
     assert(observation.max>=2&&observation.max<=3,'transfers overlap within the configured limit');
     assert(observation.partial,'receiver-acknowledged intermediate progress is displayed');
-    const expected='existing draft '+paths.map(p=>"'"+p.replaceAll("'","'\\''")+"'").join(' ')+' ';
+    let expected='existing draft '+paths.map(p=>"'"+p.replaceAll("'","'\\''")+"'").join(' ')+' ';
     const input=path.join(state,'input.bin');
     for(let i=0;i<100&&(!fs.existsSync(input)||fs.readFileSync(input,'utf8')!==expected);i++)await new Promise(r=>setTimeout(r,20));
     assert.equal(fs.readFileSync(input,'utf8'),expected,'all paths insert once, without clearing draft or Enter');
@@ -142,6 +144,40 @@ terminal.restart_ttyd(state,config)
     receivedDirs.add(path.dirname(recovered));assert.equal(fs.readFileSync(recovered,'utf8'),'recover me');
     assert.equal(fs.readFileSync(input,'utf8'),expected);
     await page.screenshot({path:path.join(os.tmpdir(),'sbt-upload-progress.png')});
+    // A disconnected input must retain saved paths and allow retry without reupload.
+    await page.clock.resume();
+    await page.reload();
+    await page.waitForFunction(()=>window.term && !document.querySelector('#sbt-bottom').disabled);
+    await page.evaluate(()=>{
+      window.normalPrepare=window.sharedTerminalPrepareInput;
+      window.sharedTerminalPrepareInput=async()=>{throw new Error('Terminal disconnected. Retry inserting paths.');};
+      window.savedPaths=[];
+      const upload=window.sharedTerminalUpload;
+      window.sharedTerminalUpload=async(...args)=>{const p=await upload(...args);window.savedPaths.push(p);return p;};
+    });
+    await page.getByRole('button',{name:'Upload documents',exact:true}).click();
+    await page.locator('#sbt-file-input').setInputFiles([files[4]]);
+    await page.locator('#sbt-retry-paths').waitFor({state:'visible'});
+    assert(await page.locator('#sbt-dialog').isVisible(),'insertion failure keeps dialog open');
+    assert.equal(fs.readFileSync(input,'utf8'),expected,'failed insertion sends no input');
+    const retained=await page.evaluate(()=>window.savedPaths[0]);receivedDirs.add(path.dirname(retained));
+    await page.evaluate(()=>{window.sharedTerminalPrepareInput=window.normalPrepare;});
+    await page.locator('#sbt-retry-paths').click();
+    await page.locator('#sbt-dialog').waitFor({state:'hidden'});
+    expected+=" '"+retained+"' ";
+    for(let i=0;i<100&&fs.readFileSync(input,'utf8')!==expected;i++)await new Promise(r=>setTimeout(r,20));
+    assert.equal(fs.readFileSync(input,'utf8'),expected,'retry inserts the retained path once');
+    assert.equal(await page.evaluate(()=>window.savedPaths.length),1,'insertion retry does not reupload');
+    // A failed sibling must not block successfully saved files from reaching input.
+    await page.getByRole('button',{name:'Upload documents',exact:true}).click();
+    await page.locator('#sbt-file-input').setInputFiles(more);
+    await page.waitForFunction(()=>document.querySelectorAll('.sbt-file[data-state="failed"]').length===1&&document.querySelectorAll('.sbt-file[data-state="complete"]').length===2);
+    const partial=await page.evaluate(()=>window.savedPaths[1]);receivedDirs.add(path.dirname(partial));
+    expected+=" '"+partial+"' ";
+    for(let i=0;i<100&&fs.readFileSync(input,'utf8')!==expected;i++)await new Promise(r=>setTimeout(r,20));
+    assert.equal(fs.readFileSync(input,'utf8'),expected,'failed sibling does not block a saved path');
+    assert(await page.locator('#sbt-dialog').isVisible(),'upload failures remain available for retry');
+    console.log('PASS: copy-mode upload exits history before inserting; insertion failure retains paths for retry; successful paths insert despite a failed sibling.');
     console.log('PASS: concurrent binary uploads with acknowledged intermediate progress; persistent per-file rows; empty/Unicode/duplicate names; exact path insertion; opt-out; independent failure; cancel/retry and retained history.');
   } finally {
     if(browser)await browser.close();
