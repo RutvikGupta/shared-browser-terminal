@@ -102,6 +102,7 @@ scripts from a normal checkout without installing a Codex skill.
 | Action | Control |
 | --- | --- |
 | Highlight terminal text | Drag, double-click a word, or triple-click a whole line |
+| Extend a selection | Shift-click its new endpoint |
 | Copy highlighted text | ⌘C (Mac) or Ctrl+Shift+C; highlighting alone never copies |
 | Accept the visible inline suggestion | Tab or Right Arrow at the end of the input |
 | Complete a command/path when no suggestion is visible | Tab |

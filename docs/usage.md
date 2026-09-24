@@ -168,6 +168,10 @@ until you select again or interact with the terminal. Copying writes plain text
 to the client laptop's clipboard and sends no input to the remote shell.
 **Ctrl+C** retains its usual command-interrupt behavior.
 
+Shift-click extends a terminal selection from the original click or drag start
+to the clicked position, including across lines. Repeated Shift-clicks keep the
+same starting point. Selection never copies automatically; use **⌘C** to copy.
+
 Ordinary dragging selects in the browser, even with tmux mouse mode enabled.
 Wheel/trackpad scrolling still reaches tmux history. Scroll to the desired output
 first, then highlight the visible text; drag selection is limited to the visible

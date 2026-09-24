@@ -84,6 +84,36 @@ terminal.restart_ttyd(state,config)
       await page.keyboard.press('Meta+c');
       assert.equal(await page.evaluate(()=>navigator.clipboard.readText()),word,'double-click selection is copyable');
     }
+    // Shift-click extends from the original anchor, including reverse and multiline selections.
+    const clickCell=async(column,row=0,shift=false)=>{
+      if(shift)await page.keyboard.down('Shift');
+      await page.mouse.click(location.x+(column+0.1)*location.w,location.y+(row+0.5)*location.h);
+      if(shift)await page.keyboard.up('Shift');
+    };
+    const shiftClipboard=await page.evaluate(()=>navigator.clipboard.readText());
+    const lineText=await page.evaluate(()=>window.term.buffer.active.getLine(window.term.buffer.active.viewportY).translateToString());
+    await clickCell(5);
+    await clickCell(16,0,true);
+    assert.equal(await page.evaluate(()=>window.term.getSelection()),lineText.slice(5,16),'click then Shift-click extends selection');
+    await clickCell(20,0,true);
+    assert.equal(await page.evaluate(()=>window.term.getSelection()),lineText.slice(5,20),'repeated Shift-click keeps original anchor');
+    await clickCell(2,0,true);
+    assert.equal(await page.evaluate(()=>window.term.getSelection()),lineText.slice(2,5),'Shift-click can cross the anchor');
+    await drag(true);
+    await clickCell(22,0,true);
+    assert.equal(await page.evaluate(()=>window.term.getSelection()),lineText.slice(16,22),'reverse drag retains its original anchor');
+    await clickCell(5);
+    await clickCell(8,1,true);
+    const multiline=await page.evaluate(()=>{
+      const t=window.term,b=t.buffer.active;
+      return b.getLine(b.viewportY).translateToString(true,5)+'\n'+b.getLine(b.viewportY+1).translateToString(false,0,8);
+    });
+    assert.equal(await page.evaluate(()=>window.term.getSelection()),multiline,'Shift-click spans hard line breaks');
+    assert.equal(await page.evaluate(()=>navigator.clipboard.readText()),shiftClipboard,'Shift-click never copies automatically');
+    await page.keyboard.press('Meta+c');
+    assert.equal(await page.evaluate(()=>navigator.clipboard.readText()),multiline,'Shift-click selection copies explicitly');
+    assert(!fs.existsSync(path.join(state,'input.bin')),'Shift-click sends no program input');
+    console.log('PASS: Shift-click extends and reverses selection from its anchor without copying or terminal input.');
     const beforeLine=await page.evaluate(()=>navigator.clipboard.readText());
     await page.mouse.click(location.x+8.5*location.w,location.y+0.5*location.h,{clickCount:3});
     const wholeLine=await page.evaluate(()=>window.term.buffer.active.getLine(window.term.buffer.active.viewportY).translateToString(true));

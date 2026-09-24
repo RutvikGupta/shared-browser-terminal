@@ -69,7 +69,8 @@ publish an old unauthenticated listener such as port 7681.
   for new panes. The browser does not hide the caret while idle or during
   output; applications retain control of their own cursor visibility.
 - Drag to highlight text, double-click a word, or triple-click a whole line
-  (including soft wraps). Highlighting preserves the clipboard. **⌘C** copies
+  (including soft wraps). **Shift-click** extends from the original click or drag
+  anchor to the clicked position, including across lines. Highlighting preserves the clipboard. **⌘C** copies
   on Mac (**Ctrl+Shift+C** elsewhere). **Ctrl+C** still interrupts commands.
 - **Command-click** a visible HTTP/HTTPS URL to open it in a new browser tab.
   Ordinary clicks and drags retain text selection.

@@ -2,7 +2,10 @@
 (() => {
   // Use xterm's public selection API. tmux mouse reporting otherwise consumes
   // drag selection and clears its highlight when its copy mode exits.
-  let drag = null, selecting = false;
+  let drag = null, selecting = false, selectionAnchor = null;
+  function rememberAnchor(term, position) {
+    selectionAnchor = {term, buffer: term.buffer.active, cols: term.cols, position};
+  }
   const screenFor = term => term?.element?.querySelector('.xterm-screen');
   const focused = term => term?.element?.contains(document.activeElement);
   function updateSelection(action) {
@@ -27,8 +30,14 @@
     const term = window.term, screen = screenFor(term);
     if (event.button !== 0 || event.altKey || event.ctrlKey || event.metaKey || !screen?.contains(event.target)) return;
     event.preventDefault(); event.stopImmediatePropagation();
-    term.focus(); updateSelection(() => term.clearSelection());
-    drag = {term, screen, anchor: cell(term, screen, event)};
+    term.focus();
+    const previous = selectionAnchor;
+    const extend = event.shiftKey && previous?.term === term && previous.buffer === term.buffer.active && previous.cols === term.cols;
+    const anchor = extend ? previous.position : cell(term, screen, event);
+    if (!extend) updateSelection(() => term.clearSelection());
+    rememberAnchor(term, anchor);
+    drag = {term, screen, anchor};
+    if (extend) selectTo(event);
   }, true);
   document.addEventListener('mousemove', event => {
     if (!drag) return;
@@ -68,6 +77,7 @@
       while (end + 1 < cells.length && category(cells[end + 1]) === kind) end++;
     }
     const offset = cells[start].start;
+    rememberAnchor(term, offset);
     updateSelection(() => term.select(offset % term.cols, Math.floor(offset / term.cols), cells[end].start + cells[end].width - offset));
   }
   function selectLine(term, screen, event) {
@@ -75,6 +85,7 @@
     let first = Math.floor(cell(term, screen, event) / term.cols), last = first;
     while (first > 0 && buffer.getLine(first)?.isWrapped) first--;
     while (buffer.getLine(last + 1)?.isWrapped) last++;
+    rememberAnchor(term, first * term.cols);
     updateSelection(() => term.select(0, first, (last - first + 1) * term.cols));
   }
   // xterm's normal click/word-selection handlers must not clear our selection.
@@ -82,10 +93,10 @@
     document.addEventListener(type, event => {
       if (event.button === 0 && !event.altKey && !event.ctrlKey && !event.metaKey && screenFor(window.term)?.contains(event.target)) {
         event.preventDefault(); event.stopImmediatePropagation();
-        if (type === 'click' && event.detail >= 3) {
+        if (!event.shiftKey && type === 'click' && event.detail >= 3) {
           drag = null;
           selectLine(window.term, screenFor(window.term), event);
-        } else if (type === 'dblclick' && event.detail === 2) {
+        } else if (!event.shiftKey && type === 'dblclick' && event.detail === 2) {
           drag = null;
           selectWord(window.term, screenFor(window.term), event);
         }
