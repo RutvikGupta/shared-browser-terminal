@@ -3,6 +3,81 @@
   // Use xterm's public selection API. tmux mouse reporting otherwise consumes
   // drag selection and clears its highlight when its copy mode exits.
   let drag = null, selecting = false, selectionAnchor = null;
+  let multiple = null;
+  function clearMultiple() {
+    if (!multiple) return;
+    multiple.layer.remove();
+    multiple.listeners.forEach(listener => listener.dispose());
+    multiple = null;
+  }
+  function logicalLine(term, row) {
+    const buffer = term.buffer.active;
+    let first = row, last = row;
+    while (first > 0 && buffer.getLine(first)?.isWrapped) first--;
+    while (buffer.getLine(last + 1)?.isWrapped) last++;
+    let text = '';
+    for (let y = first; y <= last; y++) text += buffer.getLine(y)?.translateToString(y === last) || '';
+    return {first, last, text};
+  }
+  function overLink(term, screen, event) {
+    const position = cell(term, screen, event), row = Math.floor(position / term.cols);
+    const line = logicalLine(term, row);
+    let offset = 0;
+    for (let y = line.first; y <= row; y++) {
+      offset += term.buffer.active.getLine(y)?.translateToString(false, 0, y === row ? position % term.cols : term.cols).length || 0;
+    }
+    return [...line.text.matchAll(/https?:\/\/[^\s]+/g)].some(match => offset >= match.index && offset < match.index + match[0].length);
+  }
+  function renderMultiple() {
+    if (!multiple) return;
+    const {term, buffer, cols, layer, lines} = multiple;
+    if (term.buffer.active !== buffer || term.cols !== cols || [...lines.values()].some(line => {
+      const current = logicalLine(term, line.first);
+      return current.first !== line.first || current.last !== line.last || current.text !== line.text;
+    })) { clearMultiple(); return; }
+    layer.replaceChildren();
+    for (const line of lines.values()) {
+      const first = Math.max(line.first, buffer.viewportY), last = Math.min(line.last, buffer.viewportY + term.rows - 1);
+      if (first > last) continue;
+      const highlight = document.createElement('div');
+      highlight.className = 'sbt-selected-line';
+      Object.assign(highlight.style, {position:'absolute', left:'0', right:'0',
+        top:((first-buffer.viewportY)/term.rows*100)+'%', height:((last-first+1)/term.rows*100)+'%',
+        opacity:'0.5', background:term.options.theme?.selectionBackground || 'rgba(90,130,190,.4)'});
+      layer.append(highlight);
+    }
+  }
+  function toggleLine(term, screen, event) {
+    if (!multiple || multiple.term !== term) {
+      clearMultiple();
+      const layer = document.createElement('div'); layer.id = 'sbt-multiple-selection';
+      Object.assign(layer.style, {position:'absolute', inset:'0', pointerEvents:'none', zIndex:'5'});
+      screen.append(layer);
+      multiple = {term, buffer:term.buffer.active, cols:term.cols, layer, lines:new Map(), listeners:[]};
+      // Preserve an existing drag/word/line selection as selected logical lines.
+      const selection = term.getSelectionPosition();
+      if (selection) {
+        const end = selection.end.y - (selection.end.x === 0 ? 1 : 0);
+        for (let row = selection.start.y; row <= end;) {
+          const line = logicalLine(term, row); multiple.lines.set(line.first, line); row = line.last + 1;
+        }
+      }
+      multiple.listeners = [term.onRender(renderMultiple), term.onScroll(renderMultiple), term.onResize(clearMultiple)];
+      updateSelection(() => term.clearSelection());
+    }
+    const line = logicalLine(term, Math.floor(cell(term, screen, event) / term.cols));
+    if (multiple.lines.has(line.first)) multiple.lines.delete(line.first);
+    else multiple.lines.set(line.first, line);
+    if (!multiple.lines.size) clearMultiple();
+    else renderMultiple();
+  }
+  function selectedText(term) {
+    if (multiple?.term === term) {
+      renderMultiple();
+      if (multiple) return [...multiple.lines.values()].sort((a,b) => a.first-b.first).map(line => line.text).join('\n');
+    }
+    return term?.getSelection() || '';
+  }
   function rememberAnchor(term, position) {
     selectionAnchor = {term, buffer: term.buffer.active, cols: term.cols, position};
   }
@@ -28,9 +103,12 @@
   }
   document.addEventListener('mousedown', event => {
     const term = window.term, screen = screenFor(term);
-    if (event.button !== 0 || event.altKey || event.ctrlKey || event.metaKey || !screen?.contains(event.target)) return;
+    if (event.button !== 0 || event.altKey || event.ctrlKey || !screen?.contains(event.target)) return;
+    if (event.metaKey && overLink(term, screen, event)) return;
     event.preventDefault(); event.stopImmediatePropagation();
     term.focus();
+    if (event.metaKey) { drag = null; toggleLine(term, screen, event); return; }
+    clearMultiple();
     const previous = selectionAnchor;
     const extend = event.shiftKey && previous?.term === term && previous.buffer === term.buffer.active && previous.cols === term.cols;
     const anchor = extend ? previous.position : cell(term, screen, event);
@@ -46,6 +124,9 @@
     selectTo(event);
   }, true);
   document.addEventListener('mouseup', event => {
+    if (event.button === 0 && event.metaKey && screenFor(window.term)?.contains(event.target) && !overLink(window.term, screenFor(window.term), event)) {
+      event.preventDefault(); event.stopImmediatePropagation(); return;
+    }
     if (!drag || event.button !== 0) return;
     event.preventDefault(); event.stopImmediatePropagation();
     selectTo(event); drag = null;
@@ -91,6 +172,9 @@
   // xterm's normal click/word-selection handlers must not clear our selection.
   for (const type of ['click', 'dblclick']) {
     document.addEventListener(type, event => {
+      if (event.button === 0 && event.metaKey && screenFor(window.term)?.contains(event.target) && !overLink(window.term, screenFor(window.term), event)) {
+        event.preventDefault(); event.stopImmediatePropagation(); return;
+      }
       if (event.button === 0 && !event.altKey && !event.ctrlKey && !event.metaKey && screenFor(window.term)?.contains(event.target)) {
         event.preventDefault(); event.stopImmediatePropagation();
         if (!event.shiftKey && type === 'click' && event.detail >= 3) {
@@ -110,20 +194,23 @@
       return;
     }
     const term = window.term;
-    if (!focused(term) || !term.hasSelection() || !event.clipboardData) return;
-    event.clipboardData.setData('text/plain', term.getSelection());
+    if (!focused(term) || !selectedText(term) || !event.clipboardData) return;
+    event.clipboardData.setData('text/plain', selectedText(term));
     event.preventDefault(); event.stopImmediatePropagation();
   }, true);
   document.addEventListener('keydown', event => {
     const term = window.term;
+    if (event.key === 'Escape' && multiple && focused(term)) {
+      clearMultiple(); event.preventDefault(); event.stopImmediatePropagation(); return;
+    }
     const shortcut = event.key.toLowerCase() === 'c' && !event.altKey &&
       ((event.metaKey && !event.ctrlKey) || (event.ctrlKey && event.shiftKey && !event.metaKey));
-    if (!shortcut || !focused(term) || !term.hasSelection()) return;
+    if (!shortcut || !focused(term) || !selectedText(term)) return;
     event.preventDefault(); event.stopImmediatePropagation();
     const fallback = () => {
       if (!document.execCommand('copy')) alert('Copy was blocked by the browser. Allow clipboard access and try again.');
     };
-    if (navigator.clipboard?.writeText) navigator.clipboard.writeText(term.getSelection()).catch(fallback);
+    if (navigator.clipboard?.writeText) navigator.clipboard.writeText(selectedText(term)).catch(fallback);
     else fallback();
   }, true);
 })();

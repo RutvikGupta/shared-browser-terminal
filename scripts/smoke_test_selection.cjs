@@ -114,6 +114,33 @@ terminal.restart_ttyd(state,config)
     assert.equal(await page.evaluate(()=>navigator.clipboard.readText()),multiline,'Shift-click selection copies explicitly');
     assert(!fs.existsSync(path.join(state,'input.bin')),'Shift-click sends no program input');
     console.log('PASS: Shift-click extends and reverses selection from its anchor without copying or terminal input.');
+    // Command-click adds separate full lines; a second click removes one.
+    await clickCell(5);
+    const beforeMulti=await page.evaluate(()=>navigator.clipboard.readText());
+    const commandClick=async(row)=>{
+      await page.keyboard.down('Meta');
+      await clickCell(5,row);
+      await page.keyboard.up('Meta');
+    };
+    await commandClick(2); await commandClick(0);
+    assert.equal(await page.locator('.sbt-selected-line').count(),2,'separate lines remain highlighted');
+    assert.equal(await page.evaluate(()=>navigator.clipboard.readText()),beforeMulti,'Command-click never copies automatically');
+    const multiExpected=await page.evaluate(()=>{
+      const b=window.term.buffer.active;
+      return [0,2].map(row=>b.getLine(b.viewportY+row).translateToString(true)).join('\n');
+    });
+    await page.keyboard.press('Meta+c');
+    assert.equal(await page.evaluate(()=>navigator.clipboard.readText()),multiExpected,'copies selected lines in screen order without the skipped line');
+    await commandClick(2);
+    assert.equal(await page.locator('.sbt-selected-line').count(),1,'Command-click toggles a line off');
+    await page.keyboard.press('Escape');
+    assert.equal(await page.locator('.sbt-selected-line').count(),0,'Escape clears multiline selection');
+    assert(!fs.existsSync(path.join(state,'input.bin')),'Command-click selection and Escape do not send input');
+    await drag(); await commandClick(2);
+    assert.equal(await page.locator('.sbt-selected-line').count(),2,'Command-click preserves an existing selected line');
+    await clickCell(5);
+    assert.equal(await page.locator('.sbt-selected-line').count(),0,'ordinary click starts a fresh selection');
+    console.log('PASS: Command-click toggles separate lines, copies in display order, preserves clipboard until explicit copy, and clears on ordinary click or Escape.');
     const beforeLine=await page.evaluate(()=>navigator.clipboard.readText());
     await page.mouse.click(location.x+8.5*location.w,location.y+0.5*location.h,{clickCount:3});
     const wholeLine=await page.evaluate(()=>window.term.buffer.active.getLine(window.term.buffer.active.viewportY).translateToString(true));
@@ -228,6 +255,14 @@ terminal.restart_ttyd(state,config)
     const wrappedExpected=await page.evaluate(()=>' '.repeat(window.term.cols-4)+'wrappedword');
     assert.equal(await page.evaluate(()=>window.term.getSelection()),wrappedExpected,'triple-click includes the entire wrapped logical line');
     assert.equal(await page.evaluate(()=>navigator.clipboard.readText()),beforeWrapped,'wrapped line selection does not copy');
+    await page.mouse.click(wrapped.x,wrapped.y);
+    await page.keyboard.down('Meta');await page.mouse.click(wrapped.x,wrapped.y);await page.keyboard.up('Meta');
+    assert.equal(await page.locator('.sbt-selected-line').count(),1,'wrapped logical line is one additive selection');
+    await page.keyboard.press('Meta+c');
+    assert.equal(await page.evaluate(()=>navigator.clipboard.readText()),wrappedExpected,'additive selection copies a soft wrap without extra newline');
+    await page.evaluate(()=>new Promise(resolve=>window.term.write('\x1b[2J\x1b[Hchanged output',resolve)));
+    await page.waitForFunction(()=>!document.querySelector('#sbt-multiple-selection'));
+    console.log('PASS: additive selection handles soft wraps and clears when selected output changes.');
     console.log('PASS: triple-click selects full logical lines; drag, double-click, and triple-click leave the clipboard unchanged until explicit copy.');
 
 

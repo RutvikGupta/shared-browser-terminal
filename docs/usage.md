@@ -172,6 +172,12 @@ Shift-click extends a terminal selection from the original click or drag start
 to the clicked position, including across lines. Repeated Shift-clicks keep the
 same starting point. Selection never copies automatically; use **⌘C** to copy.
 
+Command-click ordinary text to add or remove separate logical lines. **⌘C**
+copies selected lines in display order without the intervening lines. An
+ordinary click or Escape clears the selection. Changed text or a terminal resize
+also clears it, so stale highlights cannot copy different output. Command-click
+on an HTTP/HTTPS link still opens the link.
+
 Ordinary dragging selects in the browser, even with tmux mouse mode enabled.
 Wheel/trackpad scrolling still reaches tmux history. Scroll to the desired output
 first, then highlight the visible text; drag selection is limited to the visible

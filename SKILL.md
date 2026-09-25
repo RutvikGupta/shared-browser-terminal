@@ -72,6 +72,10 @@ publish an old unauthenticated listener such as port 7681.
   (including soft wraps). **Shift-click** extends from the original click or drag
   anchor to the clicked position, including across lines. Highlighting preserves the clipboard. **⌘C** copies
   on Mac (**Ctrl+Shift+C** elsewhere). **Ctrl+C** still interrupts commands.
+- **Command-click** ordinary text to toggle separate logical lines in a selection.
+  **⌘C** copies those lines in display order, omitting unselected lines. An
+  ordinary click or Escape clears it; highlighting never copies automatically.
+  Selections clear if their text changes or the terminal resizes.
 - **Command-click** a visible HTTP/HTTPS URL to open it in a new browser tab.
   Ordinary clicks and drags retain text selection.
 - **Shift+Enter** adds a newline in the Codex composer; Enter submits normally.
