@@ -85,13 +85,17 @@ publish an old unauthenticated listener such as port 7681.
   **Ctrl+R** searches history. New windows/splits inherit this configuration.
   Existing local shells must flush history before other shells can import it;
   a new terminal is not required. Details: [history and completion](docs/usage.md#suggestions-and-completion).
-- **↑ Upload → Browse**, or drop files into the minimal upload dialog. It uses
-  **3 concurrent transfers**, with no concurrency selector. Each file keeps a
+- **↑ Upload → Browse**, or drop files into the minimal upload dialog.
+  **All selected files start simultaneously**, with a dedicated background worker
+  per file and no concurrency selector. Each file keeps a
   compact name/size/progress row and cancel/retry action; no explanatory
   paragraphs or saved-path details are shown. Keep the UI minimal.
   Bytes reflect host acknowledgements, and Uploaded requires a confirmed save.
   Keep complete upload messages within 4 KiB (including the ttyd prefix),
-  with 64 KiB file reads and a 1 MiB acknowledgement window for throughput.
+  with 256 KiB file reads and a 1 MiB acknowledgement window per file.
+  Keep network I/O and retries in workers; throttle progress messages to 10 per
+  second per file and batch UI painting to keep the terminal responsive.
+  Resolve HTTPS/WebSocket URLs against the page URL, not the blob worker URL.
   Connection failures and timeouts retry automatically from the server-saved
   offset, with bounded backoff. Keep the same transfer ID for manual retries.
   Validate changes with repeated random large-file transfers through a real
@@ -106,9 +110,10 @@ publish an old unauthenticated listener such as port 7681.
   Await leaving tmux history mode before pasting. Insertion errors retain paths
   with an **Insert paths** retry; failed uploads must not block saved paths.
   Keep the popup open if insertion fails. The checkbox opts out of insertion.
-  Stop automatic retries after five consecutive failures without progress or
-  twenty reconnects. Keep manual Retry available; authentication errors and
-  invalid files require correction. Incomplete transfer caches expire after
+  Stop automatic retries after five consecutive failures without saved progress.
+  Do not exhaust a fixed reconnect count while a file is still advancing.
+  Keep manual Retry available; authentication errors and invalid files require
+  correction. Incomplete transfer caches expire after
   24 hours and are cleaned on later uploads; completed files remain. Do not select/upload files unless the
   user identifies them. [Upload guide](docs/usage.md#upload-documents).
 - Start a regular shell. Do not automatically `codex resume` the desktop chat;

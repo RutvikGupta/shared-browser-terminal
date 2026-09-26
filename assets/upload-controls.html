@@ -41,9 +41,14 @@
     const input = dialog.querySelector('#sbt-file-input'), retry = dialog.querySelector('#sbt-retry-upload');
     const insert = dialog.querySelector('#sbt-insert-paths'), drop = dialog.querySelector('#sbt-drop');
     const items = [];
-    let active = 0, lastCompletedCount = 0, finishing = false, insertionError = '';
+    let paintPending = false, lastCompletedCount = 0, finishing = false, insertionError = '';
     const pathError = dialog.querySelector('#sbt-path-error'), retryPaths = dialog.querySelector('#sbt-retry-paths');
     const bytes = number => number < 1024 ? number + ' B' : number < 1024 ** 2 ? (number / 1024).toFixed(1) + ' KB' : (number / 1024 ** 2).toFixed(1) + ' MB';
+    function schedulePaint() {
+      if (paintPending) return;
+      paintPending = true;
+      requestAnimationFrame(() => { paintPending = false; update(); });
+    }
     function update() {
       const complete = items.filter(item => item.state === 'complete');
       dialog.classList.toggle('sbt-has-files', items.length > 0);
@@ -103,22 +108,20 @@
     }
     function schedule() {
       if (!dialog.open) return;
-      while (active < 3) {
-        const item = items.find(item => item.state === 'queued' && !item.running);
-        if (!item) break;
-        item.running = true; active++; run(item);
+      for (const item of items) {
+        if (item.state === 'queued' && !item.running) { item.running = true; run(item); }
       }
     }
     async function run(item) {
       const controller = new AbortController(); item.controller = controller;
-      item.state = 'connecting'; update();
+      item.state = 'connecting'; schedulePaint();
       try {
         for (let attempt = 0; ; attempt++) {
           try {
             item.path = await window.sharedTerminalUpload(item.file, {
               signal: controller.signal,
-              onState: state => { item.state = state; update(); },
-              onProgress: received => { item.received = received; update(); }
+              onState: state => { item.state = state; schedulePaint(); },
+              onProgress: received => { item.received = received; schedulePaint(); }
             });
             item.state = 'complete'; break;
           } catch (error) {
@@ -132,7 +135,7 @@
           item.error = controller.signal.aborted ? '' : error.message;
         }
       } finally {
-        item.running = false; active--; update(); schedule();
+        item.running = false; update(); schedule();
       }
     }
     upload.addEventListener('click', () => { dialog.showModal(); update(); schedule(); });

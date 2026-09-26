@@ -265,8 +265,10 @@ file name, size, progress bar, and cancel/retry action. Completed rows stay visi
 while other files upload, and survive closing/reopening the dialog (until page
 reload). Closing returns keyboard focus to the terminal.
 
-Uploads always use at most **3 simultaneous connections**, without a UI setting. Each
-file uses a separate authenticated WebSocket on the existing terminal URL. The
+**All selected files upload simultaneously**, without a concurrency setting.
+Each file gets a dedicated Web Worker and a separate authenticated WebSocket on
+the existing terminal URL. File reads, transfer logic, and retries run off the UI
+thread; progress updates are batched to keep the terminal responsive. The
 receiver saves into its own unique folder under `~/Downloads/terminal-uploads/`.
 This can reduce per-file round-trip waiting, but all connections share bandwidth
 and disk capacity; no fixed speed improvement is promised.
@@ -275,7 +277,7 @@ Progress reports bytes acknowledged after writing on the Mac. Files are labeled
 Uploaded only after the receiver flushes the complete file to disk and publishes
 its final path. A zero-byte file still requires that final confirmation. The
 client sends messages of at most 4 KiB (including the ttyd prefix), with at
-most 1 MiB outstanding per connection. File reads are batched at 64 KiB;
+most 1 MiB outstanding per connection. File reads are batched at 256 KiB;
 it does not load whole files into memory. An opaque transfer ID and locked
 metadata preserve partial data across connection failures. The browser resumes
 from the receiver-saved offset and confirms receipt of the final path, so a
@@ -294,9 +296,10 @@ The main terminal and its agent remain connected throughout.
 Startup waits up to 15 seconds; active connections time out after 90 seconds
 without an acknowledgement. Connection failures, timeouts, and temporary server
 errors reconnect automatically with bounded backoff and resume saved bytes.
-Automatic retries stop after five consecutive failures without progress or twenty
-reconnects. **Retry** remains available after that. Authentication errors and
-invalid file metadata require correction. If the hosting Mac is asleep/offline,
+Automatic retries stop after five consecutive failures without saved progress.
+A transfer that keeps advancing does not exhaust a fixed reconnect count.
+**Retry** remains available after that. Authentication errors and invalid file
+metadata require correction. If the hosting Mac is asleep/offline,
 it must become reachable before retry can work.
 
 When all transfers settle, successfully saved paths not already inserted are pasted

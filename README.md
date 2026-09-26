@@ -16,8 +16,7 @@ Login, an open inbound port, a domain, or a Cloudflare account.
 - Mouse/trackpad scrollback: 50,000 lines in the first and subsequent windows.
 - Floating Upload button: select multiple files together; all completed host paths
   are inserted into terminal input without Enter.
-  Persistent per-file progress, up to three concurrent uploads, and individual retry/cancel.
-- Cursor stays hidden during output redraws and returns when output settles or you type.
+  All selected files upload simultaneously in background workers, with per-file progress and retry/cancel.
 - Persistent browser text selection: drag, release, then **⌘C** to copy on Mac.
 - Local Bash history suggestions: **Tab** or **Right Arrow** accepts ghost text.
 - Normal Tab completion when no suggestion is visible; **Ctrl+R** searches history.
@@ -142,15 +141,18 @@ Each file keeps a compact row with its name, size, progress, and cancel/retry
 action. Completed rows remain visible until you reload the
 page; closing and reopening the dialog keeps the list.
 
-Up to **three files upload concurrently**, with no setting to manage. Parallel connections can reduce waiting on network round
-trips, but share your network and disk bandwidth; higher concurrency is not a
-guarantee of higher throughput. Progress advances when the Mac acknowledges
-written bytes, and a file becomes Uploaded only after it is fully saved.
+**All selected files start uploading together**, with no three-file limit or
+setting to manage. Each upload runs in its own background worker, keeping file
+reads, network traffic, and retries off the terminal’s UI thread. Uploads share
+your network and disk bandwidth, so actual speed depends on the connection.
+Progress advances when the Mac acknowledges written bytes, and a file becomes
+Uploaded only after it is fully saved.
 
 Interrupted uploads retry automatically from the saved position. You can also
 cancel or retry individual files without restarting successful uploads or the
-main terminal. Retry limits prevent endless loops during an outage. Closing cancels unfinished uploads; reopen and retry them without
-selecting the files again. Each file uses its own unique folder under
+main terminal. Five consecutive failures without saved progress stop automatic
+retries; progressing files keep retrying. Closing cancels unfinished uploads;
+reopen and retry them without selecting the files again. Each file uses its own unique folder under
 `~/Downloads/terminal-uploads/`, avoiding filename collisions.
 
 After the transfers finish, successfully saved paths are inserted into terminal
@@ -258,7 +260,32 @@ release, clipboard copying, Ctrl+C delivery, Shift+Enter/Enter delivery through
 tmux, modifier and IME handling, Command-click link opening without shell input,
 and wheel scrollback. The upload test transfers real binary files concurrently,
 checks persistent progress and exact saved bytes, and exercises independent
-failures, cancellation, timeouts, retries, and safe path insertion.
+failures, cancellation, timeouts, retries, and safe path insertion. It also verifies
+that an upload finishes while the UI thread is deliberately blocked.
+
+For a large-file check through an already running public tunnel (synthetic files
+only, with no terminal input), run:
+
+```bash
+node scripts/smoke_test_upload_tunnel.cjs /path/to/terminal-state
+```
+
+This runs two batches of 9, 140, 151, 144, and 75 MiB random files, all
+uploading simultaneously in separate workers. It forces mid-transfer disconnects
+and a lost final acknowledgement, verifies SHA-256 hashes, reports throughput, and removes test
+files and caches. It also checks worker cleanup and reports UI thread delays.
+Set `UPLOAD_TEST_ROUNDS` to change repetitions; `UPLOAD_TEST_SIZES` accepts a JSON
+array of file sizes in MiB. `UPLOAD_TEST_FAULTS=0` disables deliberate disconnects.
+`UPLOAD_TEST_DROPS=22` exercises more than twenty reconnects on one file.
+For a baseline comparison, `UPLOAD_TEST_TRANSPORT` selects an older transport HTML
+file and `UPLOAD_TEST_CONCURRENCY=3` reproduces the former limit. These are test
+options; production starts every selected file immediately. `UPLOAD_TEST_LOCAL=1`
+uses loopback to measure the receiver without tunnel/network overhead.
+See [measured results and recovery checks](docs/upload-validation.md).
+`UPLOAD_TEST_RESTART=1` additionally restarts the receiver, restricted to an
+isolated session named `sbt-resume-validation…`. Set `PLAYWRIGHT_MODULE` if Playwright is installed
+outside the repository. `LARGE_UPLOAD_TEST=1` also enables large files in the
+local `scripts/smoke_test_upload.cjs` suite.
 
 ## Credits
 
@@ -270,20 +297,3 @@ failures, cancellation, timeouts, retries, and safe path insertion.
 - [Warp Phenomenon palette](https://github.com/warpdotdev/warp/blob/master/app/src/themes/default_themes.rs): terminal colors. No Warp background images or application code are included.
 
 MIT licensed. Third-party tools are installed separately and retain their own licenses.
-
-For a large-file check through an already running public tunnel (synthetic files
-only, with no terminal input), run:
-
-```bash
-node scripts/smoke_test_upload_tunnel.cjs /path/to/terminal-state
-```
-
-This runs two batches of 9, 140, 151, 144, and 75 MiB random files, with three
-transfers at a time. It forces mid-transfer disconnects and a lost final
-acknowledgement, verifies SHA-256 hashes, reports throughput, and removes test
-files and caches. Set `UPLOAD_TEST_ROUNDS` to change repetitions;
-`UPLOAD_TEST_FAULTS=0` measures uninterrupted transfers.
-`UPLOAD_TEST_RESTART=1` additionally restarts the receiver, restricted to an
-isolated session named `sbt-resume-validation…`. Set `PLAYWRIGHT_MODULE` if Playwright is installed
-outside the repository. `LARGE_UPLOAD_TEST=1` also enables large files in the
-local `scripts/smoke_test_upload.cjs` suite.

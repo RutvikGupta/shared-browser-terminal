@@ -50,16 +50,37 @@ terminal.restart_ttyd(state,config)
       const folder=path.join(state,'picker-'+index);fs.mkdirSync(folder,{recursive:true});
       const filename=path.join(folder,file.name);fs.writeFileSync(filename,file.buffer);return filename;
     });
-    await context.addInitScript(({large})=>{
-      // Slow only reads of synthetic selected files so overlapping states are observable.
-      const slice=File.prototype.slice;
-      File.prototype.slice=function(...args){
-        const blob=slice.apply(this,args), read=blob.arrayBuffer.bind(blob);
-        blob.arrayBuffer=async()=>{if(!large)await new Promise(resolve=>setTimeout(resolve,40));return read();};
-        return blob;
-      };
-    },{large});
     const page=await context.newPage();
+    let workersStarted=0;
+    page.on('worker',()=>workersStarted++);
+    await page.addInitScript(()=>{
+      window.startedTransfers=[];
+      const Original=Worker;
+      window.Worker=class extends Original {
+        postMessage(message,...rest){
+          if(message.type==='start')window.startedTransfers.push({id:message.transfer.id,name:message.file.name});
+          return super.postMessage(message,...rest);
+        }
+      };
+    });
+    // Delay synthetic reads inside the actual worker; main-thread File mocks do not cross worker boundaries.
+    await page.route('http://127.0.0.1:'+config.port+'/',async route=>{
+      const response=await route.fetch();let html=await response.text();
+      const hook=`
+        const originalSlice=File.prototype.slice, timer=setTimeout;
+        let stalled=false, offline=false;
+        self.setTimeout=(callback,delay,...args)=>timer(callback,delay===90000?(offline?100:2000):delay,...args);
+        File.prototype.slice=function(...args){
+          const blob=originalSlice.apply(this,args),read=blob.arrayBuffer.bind(blob);
+          if(this.name==='offline.bin'){offline=true;blob.arrayBuffer=()=>new Promise(()=>{});}
+          else if(this.name==='stalled.bin'&&!stalled){stalled=true;blob.arrayBuffer=()=>new Promise(()=>{});}
+          else blob.arrayBuffer=async()=>{${large?'':'await new Promise(resolve=>timer(resolve,150));'}return read();};
+          return blob;
+        };
+      `;
+      html=html.replace('function uploadWorker() {','function uploadWorker() {'+hook);
+      await route.fulfill({response,body:html});
+    });
     await page.goto('http://127.0.0.1:'+config.port);
     await page.waitForFunction(()=>window.term?.buffer.active.getLine(window.term.buffer.active.viewportY)?.translateToString().includes('Copy sample'));
     await page.evaluate(()=>{
@@ -79,7 +100,7 @@ terminal.restart_ttyd(state,config)
     assert.equal(execFileSync('tmux',['display-message','-p','-t','=selection-test:','#{pane_mode}'],{env,encoding:'utf8'}).trim(),'copy-mode');
     await page.getByRole('button',{name:'Upload documents',exact:true}).click();
     assert(await page.locator('#sbt-file-input').getAttribute('multiple')!==null);
-    assert.equal(await page.locator('#sbt-concurrency').count(),0,'parallelism is fixed without a setting');
+    assert.equal(await page.locator('#sbt-concurrency').count(),0,'no concurrency setting is required');
     await page.screenshot({path:path.join(os.tmpdir(),'sbt-upload-empty.png')});
     await page.locator('#sbt-file-input').setInputFiles(pickerFiles(files.slice(0,4)));
     const dropped=await page.evaluateHandle(()=>{
@@ -97,7 +118,8 @@ terminal.restart_ttyd(state,config)
     assert(await page.locator('#sbt-dialog').isVisible(),'reopening keeps completed history visible');
     assert.equal(await page.locator('.sbt-file').count(),5,'all selected files retain a row');
     const observation=await page.evaluate(()=>({max:window.maxUploads,partial:window.sawPartial}));
-    assert(observation.max>=2&&observation.max<=3,'transfers overlap within the configured limit');
+    assert(workersStarted>=5,'every selected file starts its own worker');
+    assert(observation.max>=4,'uploads are no longer limited to three active transfers');
     assert(observation.partial,'receiver-acknowledged intermediate progress is displayed');
     let expected='existing draft '+paths.map(p=>"'"+p.replaceAll("'","'\\''")+"'").join(' ')+' ';
     const input=path.join(state,'input.bin');
@@ -129,29 +151,16 @@ terminal.restart_ttyd(state,config)
     assert.equal(await page.locator('.sbt-file').count(),8,'reopening preserves all progress rows');
     // A receiver that accepts a file but receives no bytes times out visibly;
     // it reconnects automatically and completes once file reads recover.
-    await page.clock.install();
-    await page.evaluate(()=>{
-      window.normalSlice=File.prototype.slice;
-      File.prototype.slice=function(...args){
-        const blob=window.normalSlice.apply(this,args);
-        if(this.name==='stalled.bin')blob.arrayBuffer=()=>new Promise(()=>{});
-        return blob;
-      };
-    });
     await page.locator('#sbt-file-input').setInputFiles([{name:'stalled.bin',buffer:Buffer.from('recover me'),mimeType:'application/octet-stream'}]);
     await page.waitForFunction(()=>document.querySelectorAll('.sbt-file')[8].dataset.state==='uploading');
-    await page.clock.fastForward(90001);
     await page.waitForFunction(()=>document.querySelectorAll('.sbt-file')[8].dataset.state==='reconnecting');
     assert.match(await page.locator('.sbt-file').nth(8).textContent(),/Reconnecting/);
-    await page.evaluate(()=>{File.prototype.slice=window.normalSlice;});
-    await page.clock.fastForward(2000);
     await page.waitForFunction(()=>document.querySelectorAll('.sbt-file')[8].dataset.state==='complete');
     const recovered=await page.evaluate(()=>window.savedPaths[7]);
     receivedDirs.add(path.dirname(recovered));assert.equal(fs.readFileSync(recovered,'utf8'),'recover me');
     assert.equal(fs.readFileSync(input,'utf8'),expected);
     await page.screenshot({path:path.join(os.tmpdir(),'sbt-upload-progress.png')});
     // A disconnected input must retain saved paths and allow retry without reupload.
-    await page.clock.resume();
     await page.reload();
     await page.waitForFunction(()=>window.term && !document.querySelector('#sbt-bottom').disabled);
     await page.evaluate(()=>{
@@ -183,6 +192,50 @@ terminal.restart_ttyd(state,config)
     for(let i=0;i<100&&fs.readFileSync(input,'utf8')!==expected;i++)await new Promise(r=>setTimeout(r,20));
     assert.equal(fs.readFileSync(input,'utf8'),expected,'failed sibling does not block a saved path');
     assert(await page.locator('#sbt-dialog').isVisible(),'upload failures remain available for retry');
+    // A blocked UI thread must not stop worker reads, acknowledgements, or saving.
+    await page.reload();
+    await page.waitForFunction(()=>window.sharedTerminalUpload);
+    await page.evaluate(()=>{
+      window.threadTest=window.sharedTerminalUpload(new File([new Uint8Array(2*1024**2)],'worker-thread.bin'),{
+        signal:new AbortController().signal,onState:state=>window.threadState=state,onProgress:()=>{}
+      });
+    });
+    await page.waitForFunction(()=>window.threadState==='uploading');
+    const transfer=await page.evaluate(()=>window.startedTransfers.find(item=>item.name==='worker-thread.bin'));
+    const folder=path.join(os.homedir(),'Downloads/terminal-uploads','upload-'+transfer.id);
+    receivedDirs.add(folder);
+    let startedBlock;
+    const blocking=new Promise(resolve=>{startedBlock=resolve;});
+    await page.exposeFunction('reportUiBlocked',()=>startedBlock());
+    const blocked=page.evaluate(()=>{
+      window.reportUiBlocked();
+      const start=performance.now();while(performance.now()-start<4000){}
+    });
+    await blocking;
+    const savedDuringBlock=path.join(folder,'worker-thread.bin');
+    const deadline=Date.now()+3000;
+    while(!fs.existsSync(savedDuringBlock)&&Date.now()<deadline)await new Promise(resolve=>setTimeout(resolve,25));
+    const completedWhileBlocked=fs.existsSync(savedDuringBlock);
+    await blocked;
+    assert(completedWhileBlocked,'the worker must finish saving while the UI thread is blocked');
+    assert.equal(await page.evaluate(()=>window.threadTest),savedDuringBlock);
+    assert.deepEqual(fs.readFileSync(savedDuringBlock),Buffer.alloc(2*1024**2));
+    const stalledResult=await page.evaluate(async()=>{
+      const states=[];
+      try {
+        await window.sharedTerminalUpload(new File(['never sent'],'offline.bin'),{
+          signal:new AbortController().signal,onState:state=>states.push(state),onProgress:()=>{}
+        });
+        return {states};
+      } catch(error){return {states,error:error.message};}
+    });
+    const stalledTransfer=await page.evaluate(()=>window.startedTransfers.find(item=>item.name==='offline.bin'));
+    receivedDirs.add(path.join(os.homedir(),'Downloads/terminal-uploads','upload-'+stalledTransfer.id));
+    assert.match(stalledResult.error,/timed out/);
+    assert.equal(stalledResult.states.filter(state=>state==='uploading').length,5,'five attempts without progress stop automatically');
+    assert.equal(stalledResult.states.filter(state=>state==='reconnecting').length,4);
+    console.log('PASS: a stalled upload stops after five attempts without saved progress.');
+    console.log('PASS: upload completes and saves exact bytes while the UI thread is deliberately blocked.');
     console.log('PASS: copy-mode upload exits history before inserting; insertion failure retains paths for retry; successful paths insert despite a failed sibling.');
     console.log('PASS: concurrent binary uploads with acknowledged intermediate progress; persistent per-file rows; empty/Unicode/duplicate names; exact path insertion; opt-out; independent failure; cancel/retry and retained history.');
   } finally {
