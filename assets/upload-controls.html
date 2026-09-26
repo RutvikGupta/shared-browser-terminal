@@ -53,8 +53,8 @@
         item.status.textContent = item.state === 'complete' ? '✓' : '';
         item.status.hidden = item.state !== 'complete';
         item.status.setAttribute('aria-label', 'Uploaded');
-        item.errorText.hidden = !item.error;
-        item.errorText.textContent = item.error || '';
+        item.errorText.hidden = !item.error && item.state !== 'reconnecting';
+        item.errorText.textContent = item.error || (item.state === 'reconnecting' ? 'Reconnecting…' : '');
         item.button.hidden = item.state === 'complete';
         const canRetry = ['failed', 'canceled'].includes(item.state);
         item.button.textContent = canRetry ? '↻' : '×';
@@ -96,7 +96,7 @@
       }
     }
     function queue(item) {
-      item.state = 'queued'; item.received = 0; item.error = ''; update(); schedule();
+      item.state = 'queued'; item.error = ''; update(); schedule();
     }
     function cancel(item) {
       item.state = 'canceled'; item.error = ''; item.controller?.abort(); update();
@@ -161,7 +161,7 @@
     });
     retry.addEventListener('click', () => {
       for (const item of items) if (['failed', 'canceled'].includes(item.state)) {
-        item.state = 'queued'; item.received = 0; item.error = '';
+        item.state = 'queued'; item.error = '';
       }
       update(); schedule();
     });

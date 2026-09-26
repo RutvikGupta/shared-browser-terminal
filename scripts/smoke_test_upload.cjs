@@ -128,7 +128,7 @@ terminal.restart_ttyd(state,config)
     await page.getByRole('button',{name:'Upload documents',exact:true}).click();
     assert.equal(await page.locator('.sbt-file').count(),8,'reopening preserves all progress rows');
     // A receiver that accepts a file but receives no bytes times out visibly;
-    // it is not silently restarted, and Retry uses a fresh connection.
+    // it reconnects automatically and completes once file reads recover.
     await page.clock.install();
     await page.evaluate(()=>{
       window.normalSlice=File.prototype.slice;
@@ -141,10 +141,10 @@ terminal.restart_ttyd(state,config)
     await page.locator('#sbt-file-input').setInputFiles([{name:'stalled.bin',buffer:Buffer.from('recover me'),mimeType:'application/octet-stream'}]);
     await page.waitForFunction(()=>document.querySelectorAll('.sbt-file')[8].dataset.state==='uploading');
     await page.clock.fastForward(90001);
-    await page.waitForFunction(()=>document.querySelectorAll('.sbt-file')[8].dataset.state==='failed');
-    assert.match(await page.locator('.sbt-file').nth(8).textContent(),/timed out/);
+    await page.waitForFunction(()=>document.querySelectorAll('.sbt-file')[8].dataset.state==='reconnecting');
+    assert.match(await page.locator('.sbt-file').nth(8).textContent(),/Reconnecting/);
     await page.evaluate(()=>{File.prototype.slice=window.normalSlice;});
-    await page.locator('.sbt-file').nth(8).getByRole('button',{name:'Retry',exact:true}).click();
+    await page.clock.fastForward(2000);
     await page.waitForFunction(()=>document.querySelectorAll('.sbt-file')[8].dataset.state==='complete');
     const recovered=await page.evaluate(()=>window.savedPaths[7]);
     receivedDirs.add(path.dirname(recovered));assert.equal(fs.readFileSync(recovered,'utf8'),'recover me');
@@ -187,7 +187,11 @@ terminal.restart_ttyd(state,config)
     console.log('PASS: concurrent binary uploads with acknowledged intermediate progress; persistent per-file rows; empty/Unicode/duplicate names; exact path insertion; opt-out; independent failure; cancel/retry and retained history.');
   } finally {
     if(browser)await browser.close();
-    for(const folder of receivedDirs)fs.rmSync(folder,{recursive:true,force:true});
+    for(const folder of receivedDirs){
+      fs.rmSync(folder,{recursive:true,force:true});
+      const id=path.basename(folder).replace(/^upload-/,'');
+      if(/^[a-f0-9]{32}$/.test(id))fs.rmSync(path.join(path.dirname(folder),'.transfers',id),{recursive:true,force:true});
+    }
     const cleanup=String.raw`
 import sys, subprocess
 from pathlib import Path

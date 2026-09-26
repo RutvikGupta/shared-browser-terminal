@@ -20,7 +20,7 @@ class UploadReceiverTests(unittest.TestCase):
             parent = Path(folder)
             data = bytes(range(256)) * 700
             events = self.transfer(parent, "résumé ' report.bin", data)
-            self.assertEqual(events[0], {'type': 'ready', 'version': 1})
+            self.assertEqual(events[0], {'type': 'ready', 'version': 1, 'resume': True})
             self.assertEqual([event['bytes'] for event in events if event['type'] == 'progress'],
                              [CHUNK_SIZE, 2 * CHUNK_SIZE, len(data)])
             saved = events[-1]
@@ -28,6 +28,69 @@ class UploadReceiverTests(unittest.TestCase):
             self.assertEqual(Path(saved['path']).read_bytes(), data)
             self.assertEqual(Path(saved['path']).stat().st_mode & 0o777, 0o600)
             self.assertEqual(list(Path(saved['path']).parent.iterdir()), [Path(saved['path'])])
+
+    def resume(self, parent, data, size, identifier='a'*32, name='file.bin', receipt=False):
+        source = io.BytesIO(json.dumps({'version': 2, 'id': identifier, 'name': name, 'size': size}).encode()+b'\n'+data+(json.dumps({'complete': identifier}).encode()+b'\n' if receipt else b''))
+        sink = io.BytesIO()
+        receive_file(source, sink, parent)
+        return [json.loads(line) for line in sink.getvalue().splitlines()]
+
+    def test_resume_preserves_confirmed_bytes_and_lost_final_ack(self):
+        with tempfile.TemporaryDirectory() as folder:
+            parent = Path(folder)
+            with self.assertRaises(EOFError):
+                self.resume(parent, b'first', 11)
+            events = self.resume(parent, b'second', 11, receipt=True)
+            self.assertEqual(events[1]['offset'], 5)
+            self.assertEqual(Path(events[-1]['path']).read_bytes(), b'firstsecond')
+            replay = self.resume(parent, b'', 11, receipt=True)
+            self.assertEqual(replay[1]['offset'], 11)
+            self.assertEqual(replay[-1], events[-1])
+
+    def test_lost_completion_receipt_returns_original_completed_file(self):
+        with tempfile.TemporaryDirectory() as folder:
+            parent = Path(folder)
+            with self.assertRaises(EOFError):
+                self.resume(parent, b'done', 4)
+            events = self.resume(parent, b'', 4, receipt=True)
+            self.assertEqual(events[1]['offset'], 4)
+            self.assertEqual(Path(events[-1]['path']).read_bytes(), b'done')
+            self.assertEqual(len(list(parent.glob('upload-*'))), 1)
+
+    def test_resume_rejects_changed_metadata_and_unsafe_ids(self):
+        with tempfile.TemporaryDirectory() as folder:
+            parent = Path(folder)
+            with self.assertRaises(EOFError):
+                self.resume(parent, b'part', 10)
+            for kwargs in [{'size': 12}, {'name': 'other.bin'}, {'identifier': '../escape'}]:
+                with self.assertRaises(ValueError):
+                    self.resume(parent, b'', **({'size': 10} | kwargs))
+            self.assertEqual((parent/'.transfers'/('a'*32)/'data').read_bytes(), b'part')
+
+    def test_concurrent_resume_is_rejected_without_modifying_data(self):
+        import fcntl
+        with tempfile.TemporaryDirectory() as folder:
+            parent = Path(folder)
+            with self.assertRaises(EOFError):
+                self.resume(parent, b'part', 10)
+            state = parent/'.transfers'/('a'*32)
+            with (state/'lock').open('a') as lock:
+                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                events = self.resume(parent, b'rest', 10)
+                self.assertTrue(events[-1]['retryable'])
+                self.assertEqual((state/'data').read_bytes(), b'part')
+
+    def test_expiry_keeps_completed_files(self):
+        import os
+        from upload_receiver import expire_transfers
+        with tempfile.TemporaryDirectory() as folder:
+            parent = Path(folder)
+            saved = Path(self.resume(parent, b'done', 4, receipt=True)[-1]['path'])
+            state = parent/'.transfers'/('a'*32)
+            os.utime(state, (1, 1))
+            expire_transfers(parent/'.transfers')
+            self.assertFalse(state.exists())
+            self.assertEqual(saved.read_bytes(), b'done')
 
     def test_empty_file_and_duplicate_names_get_distinct_paths(self):
         with tempfile.TemporaryDirectory() as folder:

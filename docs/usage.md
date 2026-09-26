@@ -275,21 +275,29 @@ Progress reports bytes acknowledged after writing on the Mac. Files are labeled
 Uploaded only after the receiver flushes the complete file to disk and publishes
 its final path. A zero-byte file still requires that final confirmation. The
 client sends messages of at most 4 KiB (including the ttyd prefix), with at
-most 64 KiB outstanding per connection;
-it does not load whole files into memory. Partial files are removed on ordinary
-disconnect/cancellation or a receiver timeout. A force-killed host process or
-power loss can leave a hidden partial file.
+most 1 MiB outstanding per connection. File reads are batched at 64 KiB;
+it does not load whole files into memory. An opaque transfer ID and locked
+metadata preserve partial data across connection failures. The browser resumes
+from the receiver-saved offset and confirms receipt of the final path, so a
+lost completion response does not create a duplicate file.
 
-**Cancel** affects only its file; **Retry** restarts only a failed or canceled
+Incomplete data and retry metadata live in `~/Downloads/terminal-uploads/.transfers/`
+for up to 24 hours since activity; later uploads clean expired caches. Completed
+files remain. Refreshing the page loses its file selections and retry IDs.
+
+**Cancel** affects only its file; **Retry** resumes only a failed or canceled
 file. **Retry failed** handles all failed/canceled rows. Completed files
 are not retransmitted. Closing the dialog cancels queued/active transfers;
 reopening retains the selected File objects so Retry works without reselection.
 The main terminal and its agent remain connected throughout.
 
-Startup waits up to 15 seconds and retries once if no receiver has accepted the
-file. Active uploads fail after 90 seconds without an acknowledgement and require
-manual retry, preventing silent restarts of an in-progress transfer. If the
-hosting Mac is asleep/offline, it must become reachable before retry can work.
+Startup waits up to 15 seconds; active connections time out after 90 seconds
+without an acknowledgement. Connection failures, timeouts, and temporary server
+errors reconnect automatically with bounded backoff and resume saved bytes.
+Automatic retries stop after five consecutive failures without progress or twenty
+reconnects. **Retry** remains available after that. Authentication errors and
+invalid file metadata require correction. If the hosting Mac is asleep/offline,
+it must become reachable before retry can work.
 
 When all transfers settle, successfully saved paths not already inserted are pasted
 at the current terminal input cursor. Existing draft text is preserved; Enter is
@@ -304,9 +312,9 @@ and quoted as literal path text. Files are never overwritten.
 
 The page and transfer code come from this local skill and the installed ttyd
 binary, without CDN scripts. URL arguments select fixed handlers, not arbitrary
-commands or destinations. The smaller messages and acknowledgement window avoid disconnects reproduced
-through the public tunnel during sustained uploads. These bounds apply to
-messages and in-flight bytes, not total file size.
+commands or destinations. Message and in-flight byte bounds are not total
+file-size limits. Transient disconnects can still occur; resumable transfers
+recover saved progress instead of requiring a restart from zero.
 New uploads use `arg=upload-stream`; the legacy
 `arg=upload` and command-line trzsz receiver remain available. Both upload modes
 are behind the same ttyd password and origin checks. The streaming mode uses

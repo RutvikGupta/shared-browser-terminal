@@ -91,9 +91,11 @@ publish an old unauthenticated listener such as port 7681.
   paragraphs or saved-path details are shown. Keep the UI minimal.
   Bytes reflect host acknowledgements, and Uploaded requires a confirmed save.
   Keep complete upload messages within 4 KiB (including the ttyd prefix),
-  with a 64 KiB acknowledgement window;
-  larger frames have disconnected through the public tunnel. Validate transport
-  changes through a real tunnel, not only loopback.
+  with 64 KiB file reads and a 1 MiB acknowledgement window for throughput.
+  Connection failures and timeouts retry automatically from the server-saved
+  offset, with bounded backoff. Keep the same transfer ID for manual retries.
+  Validate changes with repeated random large-file transfers through a real
+  tunnel, forced disconnects, receiver restarts, and matching file hashes.
   Each file goes under its own `~/Downloads/terminal-uploads/upload-…/` folder
   through a separate authenticated connection on the same URL. Retry/cancel
   affects individual files; completed files are retained, not retransmitted.
@@ -103,8 +105,11 @@ publish an old unauthenticated listener such as port 7681.
   successfully saved paths are inserted once without Enter or clearing draft text.
   Await leaving tmux history mode before pasting. Insertion errors retain paths
   with an **Insert paths** retry; failed uploads must not block saved paths.
-  Keep the popup open if insertion fails. The checkbox opts out of insertion. Startup retries once before a receiver accepts a file;
-  active failures require manual retry. Do not select/upload files unless the
+  Keep the popup open if insertion fails. The checkbox opts out of insertion.
+  Stop automatic retries after five consecutive failures without progress or
+  twenty reconnects. Keep manual Retry available; authentication errors and
+  invalid files require correction. Incomplete transfer caches expire after
+  24 hours and are cleaned on later uploads; completed files remain. Do not select/upload files unless the
   user identifies them. [Upload guide](docs/usage.md#upload-documents).
 - Start a regular shell. Do not automatically `codex resume` the desktop chat;
   that starts another interface and can trigger the conversation ownership lock.

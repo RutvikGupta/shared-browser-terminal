@@ -1,6 +1,10 @@
 """Receive one bounded-memory upload through an authenticated ttyd connection."""
 
 import json
+import fcntl
+import re
+import shutil
+import time
 import os
 from pathlib import Path
 import signal
@@ -30,12 +34,14 @@ def main():
 
 
 def receive_file(source, sink, parent, heartbeat=lambda: None):
-    emit(sink, {'type': 'ready', 'version': 1})
+    emit(sink, {'type': 'ready', 'version': 1, 'resume': True})
     header = source.readline(4097)
     if len(header) > 4096 or not header.endswith(b'\n'):
         raise ValueError('Invalid upload header')
     request = json.loads(header)
     name, size = validate_request(request)
+    if request['version'] == 2:
+        return receive_resumable(source, sink, parent, request, heartbeat)
     parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     destination = Path(tempfile.mkdtemp(prefix='upload-', dir=parent))
     partial = None
@@ -72,8 +78,95 @@ def receive_file(source, sink, parent, heartbeat=lambda: None):
                 pass
 
 
+def receive_resumable(source, sink, parent, request, heartbeat):
+    name, size = validate_request(request)
+    identifier = request.get('id')
+    if not isinstance(identifier, str) or not re.fullmatch(r'[a-f0-9]{32}', identifier):
+        raise ValueError('Invalid upload ID')
+    transfers = parent / '.transfers'
+    transfers.mkdir(parents=True, exist_ok=True, mode=0o700)
+    expire_transfers(transfers)
+    state = transfers / identifier
+    state.mkdir(exist_ok=True, mode=0o700)
+    with (state / 'lock').open('a') as lock:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            emit(sink, {'type': 'error', 'message': 'Upload is reconnecting.', 'retryable': True})
+            return
+        metadata = state / 'metadata.json'
+        expected = {'name': name, 'size': size}
+        if metadata.exists():
+            if json.loads(metadata.read_text()) != expected:
+                raise ValueError('Upload details do not match the saved transfer')
+        else:
+            metadata.write_text(json.dumps(expected))
+        os.utime(state, None)
+        destination = parent / ('upload-' + identifier)
+        destination.mkdir(exist_ok=True, mode=0o700)
+        target = destination / name
+        partial = state / 'data'
+        # A lost final acknowledgement must return the same completed path.
+        if target.exists():
+            if not partial.exists() or not os.path.samefile(partial, target) or target.stat().st_size != size:
+                raise ValueError('Upload destination already exists')
+            emit(sink, {'type': 'accepted', 'size': size, 'offset': size})
+            confirm_saved(source, sink, target, size, identifier)
+            return
+        descriptor = os.open(partial, os.O_RDWR | os.O_CREAT, 0o600)
+        with os.fdopen(descriptor, 'r+b') as output:
+            received = output.seek(0, os.SEEK_END)
+            if received > size:
+                raise ValueError('Saved upload exceeds expected size')
+            emit(sink, {'type': 'accepted', 'size': size, 'offset': received})
+            try:
+                while received < size:
+                    data = source.read(min(CHUNK_SIZE, size - received))
+                    if not data:
+                        raise EOFError('Upload disconnected before all bytes arrived')
+                    output.write(data)
+                    output.flush()
+                    received += len(data)
+                    heartbeat()
+                    os.utime(state, None)
+                    emit(sink, {'type': 'progress', 'bytes': received})
+            finally:
+                output.flush()
+                os.fsync(output.fileno())
+        os.link(partial, target)
+        confirm_saved(source, sink, target, received, identifier)
+
+
+def confirm_saved(source, sink, target, size, identifier):
+    # Keep the PTY alive until ttyd has delivered the completion message.
+    # Immediate exit can race ttyd's buffered output, especially on resume.
+    emit(sink, {'type': 'saved', 'bytes': size, 'path': str(target)})
+    receipt = source.readline(4097)
+    if len(receipt) > 4096 or not receipt.endswith(b'\n') or json.loads(receipt) != {'complete': identifier}:
+        raise EOFError('Waiting for upload completion acknowledgement')
+
+
+def expire_transfers(transfers):
+    # Only our private transfer cache expires; completed user files stay intact.
+    cutoff = time.time() - 24 * 3600
+    for state in transfers.iterdir():
+        if not re.fullmatch(r'[a-f0-9]{32}', state.name) or state.stat().st_mtime >= cutoff:
+            continue
+        try:
+            with (state / 'lock').open('a') as lock:
+                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                if state.stat().st_mtime < cutoff:
+                    shutil.rmtree(state)
+                    try:
+                        (transfers.parent / ('upload-' + state.name)).rmdir()
+                    except OSError:
+                        pass
+        except (FileNotFoundError, BlockingIOError):
+            pass
+
+
 def validate_request(request):
-    if not isinstance(request, dict) or request.get('version') != 1:
+    if not isinstance(request, dict) or request.get('version') not in (1, 2):
         raise ValueError('Unsupported upload protocol')
     name, size = request.get('name'), request.get('size')
     if (not isinstance(name, str) or not name or name in ('.', '..') or

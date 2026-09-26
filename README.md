@@ -147,8 +147,9 @@ trips, but share your network and disk bandwidth; higher concurrency is not a
 guarantee of higher throughput. Progress advances when the Mac acknowledges
 written bytes, and a file becomes Uploaded only after it is fully saved.
 
-Cancel or retry individual files without restarting successful uploads or the
-main terminal. Closing cancels unfinished uploads; reopen and retry them without
+Interrupted uploads retry automatically from the saved position. You can also
+cancel or retry individual files without restarting successful uploads or the
+main terminal. Retry limits prevent endless loops during an outage. Closing cancels unfinished uploads; reopen and retry them without
 selecting the files again. Each file uses its own unique folder under
 `~/Downloads/terminal-uploads/`, avoiding filename collisions.
 
@@ -277,7 +278,12 @@ only, with no terminal input), run:
 node scripts/smoke_test_upload_tunnel.cjs /path/to/terminal-state
 ```
 
-This uploads 150, 140, and 145 MiB concurrently, verifies SHA-256 hashes, and
-removes the test uploads. Set `PLAYWRIGHT_MODULE` if Playwright is installed
+This runs two batches of 9, 140, 151, 144, and 75 MiB random files, with three
+transfers at a time. It forces mid-transfer disconnects and a lost final
+acknowledgement, verifies SHA-256 hashes, reports throughput, and removes test
+files and caches. Set `UPLOAD_TEST_ROUNDS` to change repetitions;
+`UPLOAD_TEST_FAULTS=0` measures uninterrupted transfers.
+`UPLOAD_TEST_RESTART=1` additionally restarts the receiver, restricted to an
+isolated session named `sbt-resume-validation…`. Set `PLAYWRIGHT_MODULE` if Playwright is installed
 outside the repository. `LARGE_UPLOAD_TEST=1` also enables large files in the
 local `scripts/smoke_test_upload.cjs` suite.
