@@ -269,3 +269,15 @@ failures, cancellation, timeouts, retries, and safe path insertion.
 - [Warp Phenomenon palette](https://github.com/warpdotdev/warp/blob/master/app/src/themes/default_themes.rs): terminal colors. No Warp background images or application code are included.
 
 MIT licensed. Third-party tools are installed separately and retain their own licenses.
+
+For a large-file check through an already running public tunnel (synthetic files
+only, with no terminal input), run:
+
+```bash
+node scripts/smoke_test_upload_tunnel.cjs /path/to/terminal-state
+```
+
+This uploads 150, 140, and 145 MiB concurrently, verifies SHA-256 hashes, and
+removes the test uploads. Set `PLAYWRIGHT_MODULE` if Playwright is installed
+outside the repository. `LARGE_UPLOAD_TEST=1` also enables large files in the
+local `scripts/smoke_test_upload.cjs` suite.

@@ -9,6 +9,7 @@ const root = path.resolve(__dirname, '..');
 const state = fs.mkdtempSync(path.join(os.tmpdir(), 'sbt-upload-'));
 const env = {...process.env, TMUX_TMPDIR: state}; delete env.TMUX;
 const python = process.env.PYTHON || 'python3';
+const large = process.env.LARGE_UPLOAD_TEST === '1';
 const setup = String.raw`
 import sys, socket, json
 from pathlib import Path
@@ -38,21 +39,26 @@ terminal.restart_ttyd(state,config)
     browser=await chromium.launch({headless:true});
     const context=await browser.newContext({httpCredentials:{username:login.slice(0,split),password:login.slice(split+1)},viewport:{width:1200,height:800}});
     const files=[
-      {name:"report ' résumé $(echo test).bin",buffer:Buffer.alloc(800000,0xff),mimeType:'application/octet-stream'},
-      {name:'second report.bin',buffer:Buffer.from(Array.from({length:600000},(_,i)=>i%256)),mimeType:'application/octet-stream'},
-      {name:'third.bin',buffer:Buffer.alloc(400000,33),mimeType:'application/octet-stream'},
+      {name:"report ' résumé $(echo test).bin",buffer:Buffer.alloc(large ? 150*1024*1024 : 800000,0xff),mimeType:'application/octet-stream'},
+      {name:'second report.bin',buffer:large ? Buffer.alloc(140*1024*1024,0x5a) : Buffer.from(Array.from({length:600000},(_,i)=>i%256)),mimeType:'application/octet-stream'},
+      {name:'third.bin',buffer:Buffer.alloc(large ? 145*1024*1024 : 400000,33),mimeType:'application/octet-stream'},
       {name:'empty.txt',buffer:Buffer.alloc(0),mimeType:'text/plain'},
       {name:'last.txt',buffer:Buffer.from('final document'),mimeType:'text/plain'}
     ];
-    await context.addInitScript(()=>{
+    const pickerFiles=selected=>selected.map((file,index)=>{
+      if(!large)return file;
+      const folder=path.join(state,'picker-'+index);fs.mkdirSync(folder,{recursive:true});
+      const filename=path.join(folder,file.name);fs.writeFileSync(filename,file.buffer);return filename;
+    });
+    await context.addInitScript(({large})=>{
       // Slow only reads of synthetic selected files so overlapping states are observable.
       const slice=File.prototype.slice;
       File.prototype.slice=function(...args){
         const blob=slice.apply(this,args), read=blob.arrayBuffer.bind(blob);
-        blob.arrayBuffer=async()=>{await new Promise(resolve=>setTimeout(resolve,40));return read();};
+        blob.arrayBuffer=async()=>{if(!large)await new Promise(resolve=>setTimeout(resolve,40));return read();};
         return blob;
       };
-    });
+    },{large});
     const page=await context.newPage();
     await page.goto('http://127.0.0.1:'+config.port);
     await page.waitForFunction(()=>window.term?.buffer.active.getLine(window.term.buffer.active.viewportY)?.translateToString().includes('Copy sample'));
@@ -75,12 +81,12 @@ terminal.restart_ttyd(state,config)
     assert(await page.locator('#sbt-file-input').getAttribute('multiple')!==null);
     assert.equal(await page.locator('#sbt-concurrency').count(),0,'parallelism is fixed without a setting');
     await page.screenshot({path:path.join(os.tmpdir(),'sbt-upload-empty.png')});
-    await page.locator('#sbt-file-input').setInputFiles(files.slice(0,4));
+    await page.locator('#sbt-file-input').setInputFiles(pickerFiles(files.slice(0,4)));
     const dropped=await page.evaluateHandle(()=>{
       const data=new DataTransfer();data.items.add(new File(['final document'],'last.txt',{type:'text/plain'}));return data;
     });
     await page.locator('#sbt-drop').dispatchEvent('drop',{dataTransfer:dropped});
-    await page.waitForFunction(()=>document.querySelectorAll('.sbt-file[data-state="complete"]').length===5,{},{timeout:30000});
+    await page.waitForFunction(()=>document.querySelectorAll('.sbt-file[data-state="complete"]').length===5,{},{timeout:large ? 180000 : 30000});
     const saved=await page.evaluate(()=>window.savedPaths);
     const paths=files.map(file=>saved.find(p=>path.basename(p)===file.name));
     paths.forEach(p=>receivedDirs.add(path.dirname(p)));
@@ -106,14 +112,14 @@ terminal.restart_ttyd(state,config)
     receivedDirs.add(path.dirname(duplicate));assert.notEqual(duplicate,paths[4]);
     assert.equal(fs.readFileSync(input,'utf8'),expected,'opt-out sends no extra input');
     // Keep the persistent completed rows while a new file is canceled and retried.
-    await page.locator('#sbt-file-input').setInputFiles([files[0]]);
+    await page.locator('#sbt-file-input').setInputFiles(pickerFiles([files[0]]));
     const canceled=page.locator('.sbt-file').nth(7);
     await page.waitForFunction(()=>document.querySelectorAll('.sbt-file')[7].dataset.state==='uploading');
     await canceled.getByRole('button',{name:'Cancel',exact:true}).click();
     await page.waitForFunction(()=>document.querySelectorAll('.sbt-file')[7].dataset.state==='canceled');
     assert.equal(await page.locator('.sbt-file').count(),8);
     await canceled.getByRole('button',{name:'Retry',exact:true}).click();
-    await page.waitForFunction(()=>document.querySelectorAll('.sbt-file')[7].dataset.state==='complete',{},{timeout:30000});
+    await page.waitForFunction(()=>document.querySelectorAll('.sbt-file')[7].dataset.state==='complete',{},{timeout:large ? 180000 : 30000});
     const retried=await page.evaluate(()=>window.savedPaths[6]);receivedDirs.add(path.dirname(retried));
     assert.deepEqual(fs.readFileSync(retried),files[0].buffer);
     assert.equal(fs.readFileSync(input,'utf8'),expected);

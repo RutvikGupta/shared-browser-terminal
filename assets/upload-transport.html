@@ -21,7 +21,10 @@
       const socket = new WebSocket(url, ['tty']);
       socket.binaryType = 'arraybuffer';
       const encoder = new TextEncoder(), decoder = new TextDecoder();
-      const chunkSize = 64 * 1024, windowSize = 4 * chunkSize;
+      // Keep complete ttyd input messages within 4 KiB, including the prefix.
+      // Larger frames and bursts disconnected under sustained tunnel uploads
+      // despite passing on loopback. Limit unacknowledged bytes independently.
+      const chunkSize = 4 * 1024 - 1, windowSize = 64 * 1024;
       let buffer = '', accepted = false, settled = false, sent = 0, acknowledged = 0, pumping = false, timer;
       function finish(error, path) {
         if (settled) return;
@@ -45,7 +48,7 @@
         pumping = true;
         try {
           while (!settled && sent < file.size && sent - acknowledged < windowSize) {
-            const end = Math.min(sent + chunkSize, file.size);
+            const end = Math.min(sent + chunkSize, acknowledged + windowSize, file.size);
             const bytes = new Uint8Array(await file.slice(sent, end).arrayBuffer());
             if (settled) return;
             if (bytes.length !== end - sent) throw new Error('Could not read the selected file.');

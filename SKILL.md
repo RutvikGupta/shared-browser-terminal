@@ -90,6 +90,10 @@ publish an old unauthenticated listener such as port 7681.
   compact name/size/progress row and cancel/retry action; no explanatory
   paragraphs or saved-path details are shown. Keep the UI minimal.
   Bytes reflect host acknowledgements, and Uploaded requires a confirmed save.
+  Keep complete upload messages within 4 KiB (including the ttyd prefix),
+  with a 64 KiB acknowledgement window;
+  larger frames have disconnected through the public tunnel. Validate transport
+  changes through a real tunnel, not only loopback.
   Each file goes under its own `~/Downloads/terminal-uploads/upload-…/` folder
   through a separate authenticated connection on the same URL. Retry/cancel
   affects individual files; completed files are retained, not retransmitted.

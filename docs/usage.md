@@ -274,7 +274,8 @@ and disk capacity; no fixed speed improvement is promised.
 Progress reports bytes acknowledged after writing on the Mac. Files are labeled
 Uploaded only after the receiver flushes the complete file to disk and publishes
 its final path. A zero-byte file still requires that final confirmation. The
-client streams 64 KiB chunks with at most 256 KiB outstanding per connection;
+client sends messages of at most 4 KiB (including the ttyd prefix), with at
+most 64 KiB outstanding per connection;
 it does not load whole files into memory. Partial files are removed on ordinary
 disconnect/cancellation or a receiver timeout. A force-killed host process or
 power loss can leave a hidden partial file.
@@ -303,7 +304,10 @@ and quoted as literal path text. Files are never overwritten.
 
 The page and transfer code come from this local skill and the installed ttyd
 binary, without CDN scripts. URL arguments select fixed handlers, not arbitrary
-commands or destinations. New uploads use `arg=upload-stream`; the legacy
+commands or destinations. The smaller messages and acknowledgement window avoid disconnects reproduced
+through the public tunnel during sustained uploads. These bounds apply to
+messages and in-flight bytes, not total file size.
+New uploads use `arg=upload-stream`; the legacy
 `arg=upload` and command-line trzsz receiver remain available. Both upload modes
 are behind the same ttyd password and origin checks. The streaming mode uses
 [ttyd's terminal WebSocket framing](https://github.com/tsl0922/ttyd/blob/main/html/src/components/terminal/xterm/index.ts).
