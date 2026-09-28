@@ -28,7 +28,7 @@ body.sbt-scrolling .xterm-viewport::-webkit-scrollbar { display: none; }
     let socket, state, busy = false, pending, dragging = null, stopped = false, reconnect, timeout;
     const encoder = new TextEncoder();
     const awaited = [];
-    let inFlight;
+    let inFlight, jumping = false;
     function render(position) {
       const history = state?.history || 0, height = state?.height || 1;
       const track = bar.clientHeight, size = Math.min(track, Math.max(24, track * height / (history + height)));
@@ -38,7 +38,7 @@ body.sbt-scrolling .xterm-viewport::-webkit-scrollbar { display: none; }
       bar.setAttribute('aria-valuemin', '0'); bar.setAttribute('aria-valuemax', String(history));
       bar.setAttribute('aria-valuenow', String(value));
       bar.setAttribute('aria-disabled', String(!state || !history || !['', 'copy-mode'].includes(state.mode)));
-      bottom.disabled = !state;
+      bottom.disabled = !state || jumping;
       bar.title = state ? 'Drag to scroll terminal history' : 'Connecting scroll controls…';
     }
     function request(action) { pending = action; flush(); }
@@ -54,20 +54,24 @@ body.sbt-scrolling .xterm-viewport::-webkit-scrollbar { display: none; }
     function confirmed(command) {
       return new Promise((resolve, reject) => {
         if (!state || socket?.readyState !== WebSocket.OPEN) {
-          reject(new Error('Terminal is reconnecting. Retry inserting paths.')); return;
+          reject(new Error('Terminal is reconnecting. Try again.')); return;
         }
         awaited.push({command, resolve, reject}); flush();
       });
     }
-    window.sharedTerminalPrepareInput = async () => {
+    async function returnToInput(action) {
       pending = null; // Discard an older scroll gesture before returning to input.
-      const current = await confirmed({action: 'status'});
-      const ready = await confirmed({action: 'bottom', pane: current.pane});
-      if (ready.pane !== current.pane || ready.mode !== '') {
-        throw new Error('Return to your terminal input, then retry inserting paths.');
+      for (let attempt = 0; attempt < 2; attempt++) {
+        const current = await confirmed({action: 'status'});
+        const ready = await confirmed({action, pane: current.pane});
+        if (ready.pane !== current.pane) continue;
+        if (ready.mode !== '') throw new Error('Return to your terminal input and try again.');
+        window.term?.scrollToBottom();
+        return;
       }
-      window.term?.scrollToBottom();
-    };
+      throw new Error('The active terminal changed. Try again.');
+    }
+    window.sharedTerminalPrepareInput = () => returnToInput('bottom');
     async function connect() {
       if (stopped) return;
       try {
@@ -93,7 +97,7 @@ body.sbt-scrolling .xterm-viewport::-webkit-scrollbar { display: none; }
               const completed = inFlight; inFlight = null;
               if (message.type === 'state') {
                 state = message; render(); completed?.resolve(message);
-              } else completed?.reject(new Error('Could not reach terminal input. Retry inserting paths.'));
+              } else completed?.reject(new Error('Could not reach the terminal. Try again.'));
               flush();
             }
             if (buffer.length > 8192) current.close();
@@ -101,7 +105,7 @@ body.sbt-scrolling .xterm-viewport::-webkit-scrollbar { display: none; }
         });
         current.addEventListener('close', () => {
           clearTimeout(timeout); state = null; busy = false; pending = null;
-          const error = new Error('Terminal disconnected. Retry inserting paths.');
+          const error = new Error('Terminal disconnected. Try again.');
           inFlight?.reject(error); inFlight = null;
           for (const request of awaited.splice(0)) request.reject(error);
           render();
@@ -137,9 +141,14 @@ body.sbt-scrolling .xterm-viewport::-webkit-scrollbar { display: none; }
       else return;
       event.preventDefault(); request({action: 'scroll', pane: state.pane, position: Math.max(0, Math.min(state.history, position))});
     });
-    bottom.addEventListener('click', () => {
-      if (state) request({action: 'bottom', pane: state.pane});
-      window.term?.scrollToBottom(); window.term?.focus();
+    bottom.addEventListener('click', async () => {
+      if (jumping) return;
+      jumping = true; render(); bottom.setAttribute('aria-busy', 'true');
+      try {
+        await returnToInput('latest');
+        bottom.title = 'Scroll to bottom'; window.term?.focus();
+      } catch (error) { bottom.title = error.message; }
+      finally { jumping = false; bottom.removeAttribute('aria-busy'); render(); }
     });
     const poll = setInterval(() => {
       if (!document.hidden && state && !busy && !pending && dragging === null) request({action: 'status'});

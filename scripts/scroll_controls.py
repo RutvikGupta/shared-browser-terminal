@@ -1,6 +1,7 @@
-"""Control only the active pane's tmux scrollback over authenticated ttyd."""
+"""Control the active pane's tmux history and Codex transcript over authenticated ttyd."""
 
 import json
+from pathlib import Path
 import subprocess
 import sys
 import tty
@@ -21,7 +22,7 @@ def main():
 
 def control(session, request):
     state = snapshot(session)
-    if not isinstance(request, dict) or request.get('action') not in ('status', 'bottom', 'scroll'):
+    if not isinstance(request, dict) or request.get('action') not in ('status', 'bottom', 'scroll', 'latest'):
         raise ValueError('Unsupported scroll action')
     if request['action'] == 'status':
         return state
@@ -29,9 +30,11 @@ def control(session, request):
     if request.get('pane') != state['pane'] or state['mode'] not in ('', 'copy-mode'):
         return state
     pane = state['pane']
-    if request['action'] == 'bottom':
+    if request['action'] in ('bottom', 'latest'):
         if state['mode'] == 'copy-mode':
             tmux('send-keys', '-X', '-t', pane, 'cancel')
+        if request['action'] == 'latest' and codex_owns_screen(pane):
+            tmux('send-keys', '-t', pane, 'C-End')
     else:
         position = request.get('position')
         if type(position) is not int:
@@ -46,6 +49,22 @@ def control(session, request):
             tmux('send-keys', '-X', '-t', pane, 'history-bottom')
             tmux('send-keys', '-X', '-N', str(offset), '-t', pane, 'scroll-up')
     return snapshot(session)
+
+
+def codex_owns_screen(pane):
+    # Do not send application keys to shells, editors, or background agents.
+    alternate, mouse, terminal = tmux('display-message', '-p', '-t', pane,
+                                      '#{alternate_on}\t#{mouse_any_flag}\t#{pane_tty}').strip().split('\t')
+    if alternate != '1' or mouse != '1':
+        return False
+    processes = subprocess.check_output(
+        ['ps', '-ww', '-t', terminal.removeprefix('/dev/'), '-o', 'pgid=,tpgid=,comm='],
+        text=True, stderr=subprocess.DEVNULL, timeout=3)
+    for line in processes.splitlines():
+        fields = line.split(None, 2)
+        if len(fields) == 3 and fields[0] == fields[1] and Path(fields[2]).name == 'codex':
+            return True
+    return False
 
 
 def snapshot(session):

@@ -1,7 +1,7 @@
 import unittest
 from unittest.mock import patch, call
 
-from scroll_controls import control
+from scroll_controls import control, codex_owns_screen
 
 
 class ScrollControlsTests(unittest.TestCase):
@@ -37,3 +37,34 @@ class ScrollControlsTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     control('test', request)
             tmux.assert_not_called()
+
+
+class CodexBottomTests(unittest.TestCase):
+    def test_latest_exits_copy_mode_then_jumps_in_codex(self):
+        state = {'pane': '%2', 'mode': 'copy-mode'}
+        with patch('scroll_controls.snapshot', return_value=state), patch('scroll_controls.codex_owns_screen', return_value=True), patch('scroll_controls.tmux') as tmux:
+            control('test', {'action': 'latest', 'pane': '%2'})
+        self.assertEqual(tmux.call_args_list, [call('send-keys', '-X', '-t', '%2', 'cancel'),
+                                             call('send-keys', '-t', '%2', 'C-End')])
+
+    def test_latest_does_not_send_keys_to_other_programs(self):
+        with patch('scroll_controls.snapshot', return_value={'pane': '%2', 'mode': ''}), patch('scroll_controls.codex_owns_screen', return_value=False), patch('scroll_controls.tmux') as tmux:
+            control('test', {'action': 'latest', 'pane': '%2'})
+        tmux.assert_not_called()
+
+    def test_input_preparation_never_sends_application_keys(self):
+        with patch('scroll_controls.snapshot', return_value={'pane': '%2', 'mode': ''}), patch('scroll_controls.codex_owns_screen') as owns, patch('scroll_controls.tmux') as tmux:
+            control('test', {'action': 'bottom', 'pane': '%2'})
+        owns.assert_not_called()
+        tmux.assert_not_called()
+
+    def test_only_foreground_codex_in_mouse_alternate_screen_matches(self):
+        for screen, processes, expected in [
+            ('1\t1\t/dev/ttys001', '2 2 /opt/bin/codex\n', True),
+            ('1\t1\t/dev/ttys001', '2 3 /opt/bin/codex\n3 3 /usr/bin/vim\n', False),
+            ('1\t1\t/dev/ttys001', '2 2 /usr/bin/node\n', False),
+            ('0\t1\t/dev/ttys001', '2 2 /opt/bin/codex\n', False),
+            ('1\t0\t/dev/ttys001', '2 2 /opt/bin/codex\n', False),
+        ]:
+            with self.subTest(screen=screen, processes=processes), patch('scroll_controls.tmux', return_value=screen), patch('scroll_controls.subprocess.check_output', return_value=processes):
+                self.assertEqual(codex_owns_screen('%2'), expected)

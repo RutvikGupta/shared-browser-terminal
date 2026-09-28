@@ -75,6 +75,10 @@ notification is needed. Never announce an unverified URL or send credentials.
   bottom-right jump-to-bottom button, and 50,000 lines of scrollback
   for new panes. The browser does not hide the caret while idle or during
   output; applications retain control of their own cursor visibility.
+  The bottom button exits tmux history, then sends Ctrl+End only to a verified
+  foreground Codex process using a mouse-enabled alternate screen. Other programs
+  receive no shortcut. Confirm the current pane and response before returning
+  focus; upload path preparation must never send this application shortcut.
 - Drag to highlight text, double-click a word, or triple-click a whole line
   (including soft wraps). **Shift-click** extends from the original click or drag
   anchor to the clicked position, including across lines. Highlighting preserves the clipboard. **⌘C** copies

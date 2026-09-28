@@ -251,6 +251,7 @@ browser in your own test environment, then run:
 
 ```bash
 node scripts/smoke_test_selection.cjs
+node scripts/smoke_test_bottom.cjs
 node scripts/smoke_test_upload.cjs
 ```
 
@@ -261,7 +262,10 @@ tmux, modifier and IME handling, Command-click link opening without shell input,
 and wheel scrollback. The upload test transfers real binary files concurrently,
 checks persistent progress and exact saved bytes, and exercises independent
 failures, cancellation, timeouts, retries, and safe path insertion. It also verifies
-that an upload finishes while the UI thread is deliberately blocked.
+that an upload finishes while the UI thread is deliberately blocked. The bottom-button
+test uses an isolated native full-screen fixture to verify Codex’s Ctrl+End
+sequence, tmux copy-mode exit, and a pane switch before polling refreshes. It
+requires a C compiler (`cc`).
 
 For a large-file check through an already running public tunnel (synthetic files
 only, with no terminal input), run:
