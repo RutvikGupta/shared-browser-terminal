@@ -67,8 +67,8 @@
         item.button.title = canRetry ? 'Retry' : 'Cancel';
       }
       retry.hidden = !items.some(item => ['failed', 'canceled'].includes(item.state));
+      result.textContent = items.length ? complete.length + ' of ' + items.length + ' uploaded' : '';
       if (!items.length) return;
-      result.textContent = complete.length + ' of ' + items.length + ' uploaded';
       pathError.hidden = retryPaths.hidden = !insertionError;
       pathError.textContent = insertionError;
       const settled = items.every(item => ['complete', 'failed', 'canceled'].includes(item.state));
@@ -91,6 +91,7 @@
           window.term.paste(' ' + quoted + ' ');
           pending.forEach(item => { item.inserted = true; });
         }
+        complete.forEach(item => { item.handled = true; });
         lastCompletedCount = complete.length;
         if (complete.length === items.length) dialog.close();
       } catch (error) {
@@ -138,7 +139,16 @@
         item.running = false; update(); schedule();
       }
     }
-    upload.addEventListener('click', () => { dialog.showModal(); update(); schedule(); });
+    upload.addEventListener('click', () => {
+      if (dialog.open) return;
+      for (let index = items.length - 1; index >= 0; index--) {
+        const item = items[index];
+        if (item.state === 'complete' && item.handled) {
+          item.row.remove(); items.splice(index, 1); lastCompletedCount--;
+        }
+      }
+      dialog.showModal(); update(); schedule();
+    });
     dialog.querySelector('#sbt-choose').addEventListener('click', () => input.click());
     function addFiles(files) {
       for (const file of files) {

@@ -115,8 +115,8 @@ terminal.restart_ttyd(state,config)
     await page.locator('#sbt-dialog').waitFor({state:'hidden'});
     await page.waitForFunction(()=>window.term.element.contains(document.activeElement));
     await page.getByRole('button',{name:'Upload documents',exact:true}).click();
-    assert(await page.locator('#sbt-dialog').isVisible(),'reopening keeps completed history visible');
-    assert.equal(await page.locator('.sbt-file').count(),5,'all selected files retain a row');
+    assert(await page.locator('#sbt-dialog').isVisible(),'reopening shows the file picker');
+    assert.equal(await page.locator('.sbt-file').count(),0,'finished uploads are cleared when reopening');
     const observation=await page.evaluate(()=>({max:window.maxUploads,partial:window.sawPartial}));
     assert(workersStarted>=5,'every selected file starts its own worker');
     assert(observation.max>=4,'uploads are no longer limited to three active transfers');
@@ -129,33 +129,33 @@ terminal.restart_ttyd(state,config)
     // An invalid filename fails only its own row; queued files continue.
     const more=[{name:'bad\nname.txt',buffer:Buffer.from('bad'),mimeType:'text/plain'},files[4]];
     await page.locator('#sbt-file-input').setInputFiles(more);
-    await page.waitForFunction(()=>document.querySelectorAll('.sbt-file[data-state="failed"]').length===1&&document.querySelectorAll('.sbt-file[data-state="complete"]').length===6);
+    await page.waitForFunction(()=>document.querySelectorAll('.sbt-file[data-state="failed"]').length===1&&document.querySelectorAll('.sbt-file[data-state="complete"]').length===1);
     const duplicate=await page.evaluate(()=>window.savedPaths[5]);
     receivedDirs.add(path.dirname(duplicate));assert.notEqual(duplicate,paths[4]);
     assert.equal(fs.readFileSync(input,'utf8'),expected,'opt-out sends no extra input');
     // Keep the persistent completed rows while a new file is canceled and retried.
     await page.locator('#sbt-file-input').setInputFiles(pickerFiles([files[0]]));
-    const canceled=page.locator('.sbt-file').nth(7);
-    await page.waitForFunction(()=>document.querySelectorAll('.sbt-file')[7].dataset.state==='uploading');
+    const canceled=page.locator('.sbt-file').nth(2);
+    await page.waitForFunction(()=>document.querySelectorAll('.sbt-file')[2].dataset.state==='uploading');
     await canceled.getByRole('button',{name:'Cancel',exact:true}).click();
-    await page.waitForFunction(()=>document.querySelectorAll('.sbt-file')[7].dataset.state==='canceled');
-    assert.equal(await page.locator('.sbt-file').count(),8);
+    await page.waitForFunction(()=>document.querySelectorAll('.sbt-file')[2].dataset.state==='canceled');
+    assert.equal(await page.locator('.sbt-file').count(),3);
     await canceled.getByRole('button',{name:'Retry',exact:true}).click();
-    await page.waitForFunction(()=>document.querySelectorAll('.sbt-file')[7].dataset.state==='complete',{},{timeout:large ? 180000 : 30000});
+    await page.waitForFunction(()=>document.querySelectorAll('.sbt-file')[2].dataset.state==='complete',{},{timeout:large ? 180000 : 30000});
     const retried=await page.evaluate(()=>window.savedPaths[6]);receivedDirs.add(path.dirname(retried));
     assert.deepEqual(fs.readFileSync(retried),files[0].buffer);
     assert.equal(fs.readFileSync(input,'utf8'),expected);
     await page.getByRole('button',{name:'Close upload dialog'}).click();
     await page.waitForFunction(()=>window.term.element.contains(document.activeElement));
     await page.getByRole('button',{name:'Upload documents',exact:true}).click();
-    assert.equal(await page.locator('.sbt-file').count(),8,'reopening preserves all progress rows');
+    assert.equal(await page.locator('.sbt-file').count(),1,'reopening clears finished rows but retains failed uploads for retry');
     // A receiver that accepts a file but receives no bytes times out visibly;
     // it reconnects automatically and completes once file reads recover.
     await page.locator('#sbt-file-input').setInputFiles([{name:'stalled.bin',buffer:Buffer.from('recover me'),mimeType:'application/octet-stream'}]);
-    await page.waitForFunction(()=>document.querySelectorAll('.sbt-file')[8].dataset.state==='uploading');
-    await page.waitForFunction(()=>document.querySelectorAll('.sbt-file')[8].dataset.state==='reconnecting');
-    assert.match(await page.locator('.sbt-file').nth(8).textContent(),/Reconnecting/);
-    await page.waitForFunction(()=>document.querySelectorAll('.sbt-file')[8].dataset.state==='complete');
+    await page.waitForFunction(()=>document.querySelectorAll('.sbt-file')[1].dataset.state==='uploading');
+    await page.waitForFunction(()=>document.querySelectorAll('.sbt-file')[1].dataset.state==='reconnecting');
+    assert.match(await page.locator('.sbt-file').nth(1).textContent(),/Reconnecting/);
+    await page.waitForFunction(()=>document.querySelectorAll('.sbt-file')[1].dataset.state==='complete');
     const recovered=await page.evaluate(()=>window.savedPaths[7]);
     receivedDirs.add(path.dirname(recovered));assert.equal(fs.readFileSync(recovered,'utf8'),'recover me');
     assert.equal(fs.readFileSync(input,'utf8'),expected);
@@ -176,6 +176,10 @@ terminal.restart_ttyd(state,config)
     assert(await page.locator('#sbt-dialog').isVisible(),'insertion failure keeps dialog open');
     assert.equal(fs.readFileSync(input,'utf8'),expected,'failed insertion sends no input');
     const retained=await page.evaluate(()=>window.savedPaths[0]);receivedDirs.add(path.dirname(retained));
+    await page.getByRole('button',{name:'Close upload dialog'}).click();
+    await page.getByRole('button',{name:'Upload documents',exact:true}).click();
+    assert.equal(await page.locator('.sbt-file').count(),1,'a saved path awaiting insertion survives reopening');
+    assert(await page.locator('#sbt-retry-paths').isVisible());
     await page.evaluate(()=>{window.sharedTerminalPrepareInput=window.normalPrepare;});
     await page.locator('#sbt-retry-paths').click();
     await page.locator('#sbt-dialog').waitFor({state:'hidden'});
@@ -186,7 +190,7 @@ terminal.restart_ttyd(state,config)
     // A failed sibling must not block successfully saved files from reaching input.
     await page.getByRole('button',{name:'Upload documents',exact:true}).click();
     await page.locator('#sbt-file-input').setInputFiles(more);
-    await page.waitForFunction(()=>document.querySelectorAll('.sbt-file[data-state="failed"]').length===1&&document.querySelectorAll('.sbt-file[data-state="complete"]').length===2);
+    await page.waitForFunction(()=>document.querySelectorAll('.sbt-file[data-state="failed"]').length===1&&document.querySelectorAll('.sbt-file[data-state="complete"]').length===1);
     const partial=await page.evaluate(()=>window.savedPaths[1]);receivedDirs.add(path.dirname(partial));
     expected+=" '"+partial+"' ";
     for(let i=0;i<100&&fs.readFileSync(input,'utf8')!==expected;i++)await new Promise(r=>setTimeout(r,20));
@@ -237,7 +241,7 @@ terminal.restart_ttyd(state,config)
     console.log('PASS: a stalled upload stops after five attempts without saved progress.');
     console.log('PASS: upload completes and saves exact bytes while the UI thread is deliberately blocked.');
     console.log('PASS: copy-mode upload exits history before inserting; insertion failure retains paths for retry; successful paths insert despite a failed sibling.');
-    console.log('PASS: concurrent binary uploads with acknowledged intermediate progress; persistent per-file rows; empty/Unicode/duplicate names; exact path insertion; opt-out; independent failure; cancel/retry and retained history.');
+    console.log('PASS: concurrent binary uploads with acknowledged intermediate progress; persistent per-file rows; empty/Unicode/duplicate names; exact path insertion; opt-out; independent failure; cancel/retry; fresh popup after completion and retained unfinished work.');
   } finally {
     if(browser)await browser.close();
     for(const folder of receivedDirs){

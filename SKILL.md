@@ -116,7 +116,8 @@ notification is needed. Never announce an unverified URL or send credentials.
   affects individual files; completed files are retained, not retransmitted.
   The dialog closes automatically when all files succeed; failures stay open.
   Closing manually cancels unfinished transfers,
-  and reopening preserves the list until page reload. After transfers finish,
+  and reopening clears finished upload rows. Keep failed/canceled files and
+  saved paths still awaiting insertion available for retry. After transfers finish,
   successfully saved paths are inserted once without Enter or clearing draft text.
   Await leaving tmux history mode before pasting. Insertion errors retain paths
   with an **Insert paths** retry; failed uploads must not block saved paths.

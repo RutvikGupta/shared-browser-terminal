@@ -265,8 +265,8 @@ Click **↑ Upload → Browse**, or drag files into the drop area. Use ⌘-click
 Ctrl-click on Windows/Linux, or Shift-click for a range in the file picker. All files appear in one persistent list, with queued,
 connecting, uploading, uploaded, canceled, or failed status. Each compact row shows its
 file name, size, progress bar, and cancel/retry action. Completed rows stay visible
-while other files upload, and survive closing/reopening the dialog (until page
-reload). Closing returns keyboard focus to the terminal.
+while other files upload. Reopening clears finished upload rows, keeping only
+failed/canceled files and saved paths still awaiting insertion. Closing returns keyboard focus to the terminal.
 
 **All selected files upload simultaneously**, without a concurrency setting.
 Each file gets a dedicated Web Worker and a separate authenticated WebSocket on
@@ -310,8 +310,8 @@ at the current terminal input cursor. Existing draft text is preserved; Enter is
 never sent. The browser waits for tmux to leave history mode before pasting.
 If insertion fails, the popup retains the saved paths and offers **Insert paths**
 to retry without uploading again. Failed uploads do not block successful paths.
-The dialog closes automatically once all listed files succeed; reopen Upload to
-review retained rows. Failures keep the dialog open for retry. Uncheck **Insert paths**
+The dialog closes automatically once all listed files succeed; reopening starts
+a fresh upload list. Failures keep the dialog open for retry. Uncheck **Insert paths**
 to opt out. Filenames containing path separators or control characters
 are rejected; spaces, Unicode, apostrophes, and shell metacharacters are preserved
 and quoted as literal path text. Files are never overwritten.

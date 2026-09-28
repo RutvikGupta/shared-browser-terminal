@@ -138,8 +138,8 @@ python3 scripts/browser_terminal.py stop
 
 Refresh the terminal page after upgrading. Click **↑ Upload → Browse**, or drop files into the dialog.
 Each file keeps a compact row with its name, size, progress, and cancel/retry
-action. Completed rows remain visible until you reload the
-page; closing and reopening the dialog keeps the list.
+action. Reopening the dialog clears finished uploads. Failed or canceled files
+and saved paths awaiting insertion stay available for retry.
 
 **All selected files start uploading together**, with no three-file limit or
 setting to manage. Each upload runs in its own background worker, keeping file
@@ -161,7 +161,7 @@ closed before insertion. If insertion fails, **Insert paths** retries without
 uploading again; a failed upload does not block paths from successful files.
 Uncheck **Insert paths** to opt out. The dialog closes automatically after all
 listed files succeed and their paths are inserted, returning focus to the terminal.
-Reopen Upload to review the list; failures stay open for retry. Uploads use independent authenticated
+Reopen Upload to start fresh; failures stay available for retry. Uploads use independent authenticated
 connections through the same ttyd/Cloudflare URL and password, without another
 server or account. The button uses the browser's standard multi-file picker.
 
