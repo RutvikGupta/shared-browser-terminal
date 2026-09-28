@@ -13,3 +13,6 @@ theme.json
 .bash_history
 .zsh_history
 state/
+
+# Installation-specific user preferences
+/LOCAL.md

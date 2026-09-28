@@ -287,6 +287,10 @@ isolated session named `sbt-resume-validation…`. Set `PLAYWRIGHT_MODULE` if Pl
 outside the repository. `LARGE_UPLOAD_TEST=1` also enables large files in the
 local `scripts/smoke_test_upload.cjs` suite.
 
+Personal follow-up preferences can live in a gitignored `LOCAL.md` beside
+`SKILL.md`. Agents read it after browser access is verified; preserve this file
+when updating your installation.
+
 ## Credits
 
 - [tmux](https://github.com/tmux/tmux): persistent terminal sessions.

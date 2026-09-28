@@ -61,6 +61,13 @@ access. The helper binds authenticated ttyd to `127.0.0.1:7682`, verifies local
 authentication before publication, and manages only recorded processes. Never
 publish an old unauthenticated listener such as port 7681.
 
+## Personal follow-up preferences
+
+After `readiness: ready`, read `LOCAL.md` beside this skill if it exists and follow
+its user-authorized notification preferences. This optional, gitignored file is
+personal to the installation; preserve it during updates. If absent, no extra
+notification is needed. Never announce an unverified URL or send credentials.
+
 ## Defaults and boundaries
 
 - Warp **Phenomenon** palette, **14px**, line height **1.0**, hidden tmux status
