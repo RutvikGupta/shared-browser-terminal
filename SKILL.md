@@ -103,6 +103,11 @@ notification is needed. Never announce an unverified URL or send credentials.
   Existing local shells must flush history before other shells can import it;
   a new terminal is not required. Details: [history and completion](docs/usage.md#suggestions-and-completion).
 - **↑ Upload → Browse**, or drop files into the minimal upload dialog.
+  Dropping files anywhere on the terminal opens the same separate upload flow.
+  Capture file drag/drop events before ttyd/trzsz: its built-in drop handler sends
+  Ctrl+C and types `trz` into the foreground program. Never let file drops reach
+  that handler; preserve running agents, draft input, and terminal responsiveness.
+  Pass non-file drags through normally.
   **All selected files start simultaneously**, with a dedicated background worker
   per file and no concurrency selector. Each file keeps a
   compact name/size/progress row and cancel/retry action; no explanatory

@@ -83,6 +83,46 @@ terminal.restart_ttyd(state,config)
     });
     await page.goto('http://127.0.0.1:'+config.port);
     await page.waitForFunction(()=>window.term?.buffer.active.getLine(window.term.buffer.active.viewportY)?.translateToString().includes('Copy sample'));
+    // A drop on the terminal must not reach ttyd/trzsz's in-band uploader:
+    // that path interrupts the foreground program before typing a receiver command.
+    const paneBefore=execFileSync('tmux',['display-message','-p','-t','=selection-test:','#{pane_pid}'],{env,encoding:'utf8'}).trim();
+    await page.evaluate(()=>{
+      window.dropPaths=[];
+      const upload=window.sharedTerminalUpload;
+      window.sharedTerminalUpload=async(...args)=>{const saved=await upload(...args);window.dropPaths.push(saved);return saved;};
+    });
+    const terminalDrop=await page.evaluateHandle(()=>{
+      // Synthetic drops need the file-entry API supplied by real OS drags.
+      DataTransferItem.prototype.webkitGetAsEntry=function(){
+        const file=this.getAsFile();
+        return file && {isFile:true,isDirectory:false,name:file.name,fullPath:'/'+file.name,file:resolve=>resolve(file)};
+      };
+      const data=new DataTransfer();
+      data.items.add(new File(['drop without interrupt'],'terminal drop.txt',{type:'text/plain'}));
+      data.items.add(new File(['second dropped file'],'another drop.txt',{type:'text/plain'}));
+      return data;
+    });
+    await page.locator('.xterm-screen').dispatchEvent('dragover',{dataTransfer:terminalDrop});
+    await page.locator('.xterm-screen').dispatchEvent('drop',{dataTransfer:terminalDrop});
+    await page.waitForTimeout(200);
+    const rawInput=path.join(state,'input.bin');
+    const early=fs.existsSync(rawInput)?fs.readFileSync(rawInput):Buffer.alloc(0);
+    assert(!early.includes(3)&&!early.includes(4),'dropping files must not send Ctrl+C or Ctrl+D to the foreground program');
+    await page.waitForFunction(()=>window.dropPaths.length===2,{},{timeout:10000});
+    await page.locator('#sbt-dialog').waitFor({state:'hidden'});
+    const droppedPaths=await page.evaluate(()=>window.dropPaths);
+    for(const filename of droppedPaths)receivedDirs.add(path.dirname(filename));
+    assert.equal(fs.readFileSync(droppedPaths.find(p=>path.basename(p)==='terminal drop.txt'),'utf8'),'drop without interrupt');
+    assert.equal(fs.readFileSync(droppedPaths.find(p=>path.basename(p)==='another drop.txt'),'utf8'),'second dropped file');
+    const droppedExpected=' '+['terminal drop.txt','another drop.txt'].map(name=>"'"+droppedPaths.find(p=>path.basename(p)===name)+"'").join(' ')+' ';
+    await page.waitForTimeout(200);
+    assert.equal(fs.readFileSync(rawInput,'utf8'),droppedExpected,'only completed paths reach the running program, without Enter, interrupts or receiver commands');
+    assert.equal(execFileSync('tmux',['display-message','-p','-t','=selection-test:','#{pane_pid}'],{env,encoding:'utf8'}).trim(),paneBefore,'foreground terminal process survives the drop');
+    await page.keyboard.type(' still alive');
+    for(let i=0;i<100&&fs.readFileSync(rawInput,'utf8')!==droppedExpected+' still alive';i++)await new Promise(r=>setTimeout(r,20));
+    assert.equal(fs.readFileSync(rawInput,'utf8'),droppedExpected+' still alive','terminal accepts further input without a reload');
+    fs.unlinkSync(rawInput);
+    console.log('PASS: direct terminal drop uploads multiple files without interrupting the program; input remains responsive without reload.');
     await page.evaluate(()=>{
       window.term.paste('existing draft');
       window.savedPaths=[];

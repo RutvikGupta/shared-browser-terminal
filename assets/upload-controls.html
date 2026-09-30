@@ -139,7 +139,7 @@
         item.running = false; update(); schedule();
       }
     }
-    upload.addEventListener('click', () => {
+    function openDialog() {
       if (dialog.open) return;
       for (let index = items.length - 1; index >= 0; index--) {
         const item = items[index];
@@ -148,7 +148,8 @@
         }
       }
       dialog.showModal(); update(); schedule();
-    });
+    }
+    upload.addEventListener('click', openDialog);
     dialog.querySelector('#sbt-choose').addEventListener('click', () => input.click());
     function addFiles(files) {
       for (const file of files) {
@@ -166,12 +167,25 @@
       update(); schedule();
     }
     input.addEventListener('change', () => { addFiles(input.files); input.value = ''; });
-    drop.addEventListener('dragover', event => { event.preventDefault(); event.stopPropagation(); drop.classList.add('sbt-dragover'); });
+    // Capture file drops before ttyd's target handler can send Ctrl+C and `trz`
+    // into the foreground program. All files use the separate upload connection.
+    const hasFiles = event => event.dataTransfer &&
+      (event.dataTransfer.files.length || [...event.dataTransfer.types].includes('Files'));
+    window.addEventListener('dragover', event => {
+      if (!hasFiles(event)) return;
+      event.preventDefault(); event.stopImmediatePropagation();
+      event.dataTransfer.dropEffect = 'copy';
+      if (dialog.open) drop.classList.add('sbt-dragover');
+    }, true);
+    window.addEventListener('drop', event => {
+      if (!hasFiles(event)) return;
+      event.preventDefault(); event.stopImmediatePropagation();
+      drop.classList.remove('sbt-dragover');
+      if (!event.dataTransfer.files.length) return;
+      openDialog(); addFiles(event.dataTransfer.files);
+    }, true);
+    window.addEventListener('dragend', () => drop.classList.remove('sbt-dragover'));
     drop.addEventListener('dragleave', () => drop.classList.remove('sbt-dragover'));
-    drop.addEventListener('drop', event => {
-      event.preventDefault(); event.stopPropagation(); drop.classList.remove('sbt-dragover');
-      addFiles(event.dataTransfer.files);
-    });
     retry.addEventListener('click', () => {
       for (const item of items) if (['failed', 'canceled'].includes(item.state)) {
         item.state = 'queued'; item.error = '';

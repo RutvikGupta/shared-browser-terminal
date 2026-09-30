@@ -275,6 +275,10 @@ file name, size, progress bar, and cancel/retry action. Completed rows stay visi
 while other files upload. Reopening clears finished upload rows, keeping only
 failed/canceled files and saved paths still awaiting insertion. Closing returns keyboard focus to the terminal.
 
+Drop files directly onto the terminal or into the Upload dialog. File drops
+use the separate upload connection and never send Ctrl+C or start a receiver
+inside your running command. The terminal stays available after the upload.
+
 **All selected files upload simultaneously**, without a concurrency setting.
 Each file gets a dedicated Web Worker and a separate authenticated WebSocket on
 the existing terminal URL. File reads, transfer logic, and retries run off the UI

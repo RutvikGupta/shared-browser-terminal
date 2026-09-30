@@ -143,6 +143,9 @@ Each file keeps a compact row with its name, size, progress, and cancel/retry
 action. Reopening the dialog clears finished uploads. Failed or canceled files
 and saved paths awaiting insertion stay available for retry.
 
+Drop files directly onto the terminal or into the Upload dialog. Both use a
+separate connection, keeping your running command and draft input intact.
+
 **All selected files start uploading together**, with no three-file limit or
 setting to manage. Each upload runs in its own background worker, keeping file
 reads, network traffic, and retries off the terminal’s UI thread. Uploads share
