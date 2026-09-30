@@ -163,6 +163,13 @@ previous redraw-hiding workaround.
 
 ## Highlight and copy
 
+Soft-wrapped lines copy without extra newlines. Some applications render wrapped
+commands using ordinary line breaks; copying also joins an indented `--option`
+when it could not fit on the preceding row of a simple command with options.
+Other line breaks, including separate commands, option lists, quoted multiline
+strings, and explicit backslash continuations, stay intact. Arbitrary application
+word wrapping cannot always be distinguished from intentional newlines.
+
 Drag over terminal text, double-click a word, or triple-click a whole line
 (including soft-wrapped continuations) with the primary mouse button. Highlighting
 leaves your clipboard unchanged. To copy, press

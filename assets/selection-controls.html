@@ -10,18 +10,23 @@
     multiple.listeners.forEach(listener => listener.dispose());
     multiple = null;
   }
-  function logicalLine(term, row) {
+  function logicalLine(term, row, recoverOptions = true) {
     const buffer = term.buffer.active;
     let first = row, last = row;
-    while (first > 0 && buffer.getLine(first)?.isWrapped) first--;
-    while (buffer.getLine(last + 1)?.isWrapped) last++;
+    const continues = row => recoverOptions ? continuation(term, row) : buffer.getLine(row)?.isWrapped && 'soft';
+    while (first > 0 && continues(first)) first--;
+    while (continues(last + 1)) last++;
     let text = '';
-    for (let y = first; y <= last; y++) text += buffer.getLine(y)?.translateToString(y === last) || '';
+    for (let y = first; y <= last; y++) {
+      const kind = y > first && continues(y);
+      const part = buffer.getLine(y)?.translateToString(y === last || continues(y + 1) !== 'soft', 0, term.cols) || '';
+      text = kind === 'option' ? text.trimEnd() + ' ' + part.trimStart() : text + part;
+    }
     return {first, last, text};
   }
   function overLink(term, screen, event) {
     const position = cell(term, screen, event), row = Math.floor(position / term.cols);
-    const line = logicalLine(term, row);
+    const line = logicalLine(term, row, false);
     let offset = 0;
     for (let y = line.first; y <= row; y++) {
       offset += term.buffer.active.getLine(y)?.translateToString(false, 0, y === row ? position % term.cols : term.cols).length || 0;
@@ -76,7 +81,54 @@
       renderMultiple();
       if (multiple) return [...multiple.lines.values()].sort((a,b) => a.first-b.first).map(line => line.text).join('\n');
     }
-    return term?.getSelection() || '';
+    const selection = term?.getSelectionPosition();
+    if (!selection) return '';
+    const {start, end} = selection, buffer = term.buffer.active;
+    let text = '';
+    for (let y = start.y; y <= end.y; y++) {
+      if (y === end.y && end.x === 0) break;
+      const kind = y > start.y && continuation(term, y);
+      const part = buffer.getLine(y)?.translateToString(y === end.y || continuation(term, y + 1) !== 'soft', y === start.y ? start.x : 0, y === end.y ? end.x : term.cols) || '';
+      if (y > start.y && !kind) text += '\n';
+      text = kind === 'option' ? text.trimEnd() + ' ' + part.trimStart() : text + part;
+    }
+    return text;
+  }
+  function continuation(term, row) {
+    const buffer = term.buffer.active, line = buffer.getLine(row);
+    if (!line || row <= 0) return null;
+    if (line.isWrapped) return 'soft';
+    if (!overflowingOption(term, row)) return null;
+    let first = row - 1;
+    while (first > 0 && (buffer.getLine(first)?.isWrapped || overflowingOption(term, first))) first--;
+    let previous = '';
+    for (let y = first; y < row; y++) {
+      const part = buffer.getLine(y).translateToString(y === row - 1, 0, term.cols);
+      if (y > first && !buffer.getLine(y).isWrapped && previous.trimEnd().endsWith('\\')) return null;
+      previous += y > first && !buffer.getLine(y).isWrapped ? ' ' + part.trimStart() : part;
+    }
+    if (!/^[ \t]*(?:[$>] )?[a-z0-9_./~][a-z0-9_./~-]*\s+\S/u.test(previous) || !/(?:^|\s)--[a-zA-Z]/u.test(previous)) return null;
+    // Leave quoted multiline strings, shell continuations and compound commands
+    // unchanged. Quotes inside a single physical line are fine.
+    let quote = '', escaped = false;
+    for (const char of previous) {
+      if (escaped) { escaped = false; continue; }
+      if (char === '\\' && quote !== "'") { escaped = true; continue; }
+      if (quote) { if (char === quote) quote = ''; continue; }
+      if (char === "'" || char === '"') quote = char;
+      else if (';|&`()#'.includes(char)) return null;
+    }
+    return quote || escaped || previous.trimEnd().endsWith('\\') ? null : 'option';
+  }
+  function overflowingOption(term, row) {
+    const buffer = term.buffer.active;
+    const next = buffer.getLine(row)?.translateToString(true, 0, term.cols) || '';
+    const option = next.match(/^[ \t\u00a0]+(--[a-zA-Z][\w-]*(?:=[^\s]*)?)(?=\s|$)/u);
+    if (!option) return false;
+    const previous = buffer.getLine(row - 1)?.translateToString(true, 0, term.cols) || '';
+    // Full-screen apps may word-wrap with cursor movement, without a soft-wrap
+    // marker. Require an indented option that would not fit on the previous row.
+    return [...previous].length + 1 + [...option[1]].length > term.cols;
   }
   function rememberAnchor(term, position) {
     selectionAnchor = {term, buffer: term.buffer.active, cols: term.cols, position};
@@ -162,10 +214,8 @@
     updateSelection(() => term.select(offset % term.cols, Math.floor(offset / term.cols), cells[end].start + cells[end].width - offset));
   }
   function selectLine(term, screen, event) {
-    const buffer = term.buffer.active;
     let first = Math.floor(cell(term, screen, event) / term.cols), last = first;
-    while (first > 0 && buffer.getLine(first)?.isWrapped) first--;
-    while (buffer.getLine(last + 1)?.isWrapped) last++;
+    ({first, last} = logicalLine(term, first));
     rememberAnchor(term, first * term.cols);
     updateSelection(() => term.select(0, first, (last - first + 1) * term.cols));
   }

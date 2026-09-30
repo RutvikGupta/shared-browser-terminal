@@ -16,7 +16,7 @@ sys.path.insert(0, str(Path(sys.argv[1])/'scripts'))
 import browser_terminal as terminal
 state=Path(sys.argv[2])
 fixture=state/'fixture.py'
-fixture.write_text("import os,tty,time\nfrom pathlib import Path\ntty.setraw(0)\nos.write(1, ('\\x1b[2J\\x1b[H'+'\\r\\n'.join('Copy sample line %03d alpha beta gamma https://example.test/terminal-link café 你好 élan' % i for i in range(100))).encode())\nwhile True:\n data=os.read(0,1024)\n if data==b'r':\n  for i in range(30):\n   os.write(1,b'\\x1b[?25l\\x1b[1;20H.\\x1b[?25h')\n   time.sleep(0.035)\n with Path(__file__).with_name('input.bin').open('ab') as out: out.write(data)\n")
+fixture.write_text("import os,tty,time\nfrom pathlib import Path\ntty.setraw(0)\nos.write(1, ('\\x1b[2J\\x1b[H'+'\\r\\n'.join('Copy sample line %03d alpha beta gamma https://example.test/terminal-link café 你好 élan' % i for i in range(100))).encode())\nwhile True:\n data=os.read(0,1024)\n if data==b'w':\n  os.write(1,Path(__file__).with_name('display.bin').read_bytes())\n if data==b'r':\n  for i in range(30):\n   os.write(1,b'\\x1b[?25l\\x1b[1;20H.\\x1b[?25h')\n   time.sleep(0.035)\n with Path(__file__).with_name('input.bin').open('ab') as out: out.write(data)\n")
 with socket.socket() as sock:
  sock.bind(('127.0.0.1',0)); port=sock.getsockname()[1]
 config={'session':'selection-test','port':port,'font_size':14,'cwd':str(state)}
@@ -265,6 +265,58 @@ terminal.restart_ttyd(state,config)
     console.log('PASS: additive selection handles soft wraps and clears when selected output changes.');
     console.log('PASS: triple-click selects full logical lines; drag, double-click, and triple-click leave the clipboard unchanged until explicit copy.');
 
+
+    // Exercise actual tmux output, including full-screen word wrapping with no
+    // xterm soft-wrap marker. These command strings are displayed, never run.
+    await page.evaluate(()=>{delete navigator.clipboard.writeText});
+    await page.setViewportSize({width:1450,height:800});
+    await page.waitForTimeout(500);
+    const command = 'gcloud builds triggers run cdktf-diff-trigger-example-prod-123456 --project=example-prod-123456 --region=us-west1 --sha=0123456789abcdef0123456789abcdef01234567';
+    const option = "--format='yaml(metadata.build.id,metadata.build.status,metadata.build.logUrl)'";
+    const display = async text => {
+      fs.writeFileSync(path.join(state,'display.bin'), '\x1b[2J\x1b[H'+text);
+      execFileSync('tmux',['send-keys','-t','selection-test:0.0','-l','w'],{env});
+      await page.waitForTimeout(200);
+    };
+    const copyRows = async (count, key='Meta+c') => {
+      await page.evaluate(count=>{const t=window.term;t.focus();t.select(0,t.buffer.active.viewportY,count*t.cols)},count);
+      await page.keyboard.press(key);
+      return page.evaluate(()=>navigator.clipboard.readText());
+    };
+    await display(command+'\r\n  '+option+'\r\necho separate-command');
+    assert.equal(await page.evaluate(()=>window.term.buffer.active.getLine(window.term.buffer.active.viewportY+1).isWrapped),false,'fixture reproduces application word-wrap without a soft-wrap marker');
+    assert.equal(await copyRows(3),command+' '+option+'\necho separate-command','copy joins overflowing option while preserving next command');
+    assert.equal(await copyRows(2,'Control+Shift+c'),command+' '+option,'alternate copy shortcut uses the same normalization');
+    const coords=await page.evaluate(()=>{const t=window.term,r=t.element.querySelector('.xterm-screen').getBoundingClientRect();return {x:r.x,y:r.y,w:r.width/t.cols,h:r.height/t.rows}});
+    await page.mouse.move(coords.x+0.1*coords.w,coords.y+0.5*coords.h);await page.mouse.down();
+    await page.mouse.move(coords.x+(option.length+2.1)*coords.w,coords.y+1.5*coords.h,{steps:8});await page.mouse.up();
+    await page.keyboard.press('Meta+c');
+    assert.equal(await page.evaluate(()=>navigator.clipboard.readText()),command+' '+option,'drag across both display rows copies one command');
+    await page.mouse.click(coords.x+4*coords.w,coords.y+1.5*coords.h,{clickCount:3});
+    await page.keyboard.press('Meta+c');
+    assert.equal(await page.evaluate(()=>navigator.clipboard.readText()),command+' '+option,'triple-click selects a command including its wrapped options');
+    await page.mouse.click(coords.x+4*coords.w,coords.y+1.5*coords.h);
+    await page.keyboard.down('Meta');await page.mouse.click(coords.x+4*coords.w,coords.y+1.5*coords.h);await page.keyboard.up('Meta');
+    await page.keyboard.press('Meta+c');
+    assert.equal(await page.evaluate(()=>navigator.clipboard.readText()),command+' '+option,'Command-click also copies one logical command');
+    for (const text of [
+      'echo first\r\necho second',
+      'Options:\r\n  --first\r\n  --second',
+      'tool --short\r\n  --another-option',
+      command+' \\\r\n  '+option,
+      command+" 'multiline\r\n  "+option,
+      command+';\r\n  '+option,
+    ]) {
+      await display(text);
+      assert.equal(await copyRows(text.split('\r\n').length),text.replaceAll('\r\n','\n'),'real newlines and explicit shell syntax remain intact');
+    }
+    await display(command+' '+option+'\r\necho separate-command');
+    assert.equal(await copyRows(3),command+' '+option+'\necho separate-command','native tmux soft wrap retains exact command and hard newline');
+    await page.setViewportSize({width:1100,height:800});
+    await page.waitForTimeout(500);
+    await display(command+' '+option+'\r\necho separate-command');
+    assert.equal(await copyRows(3),command+' '+option+'\necho separate-command','copy remains exact after narrowing the browser');
+    console.log('PASS: real tmux soft wraps, application-wrapped command options, resize, triple/Command-click, clipboard fallback, and intentional multiline text.');
 
     console.log('PASS: forward/reverse drag persists; Command+C and Ctrl+Shift+C copy exact text without shell input; Ctrl+C interrupts; wheel scrollback and Upload remain available.');
   } finally {

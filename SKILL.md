@@ -79,6 +79,12 @@ notification is needed. Never announce an unverified URL or send credentials.
   foreground Codex process using a mouse-enabled alternate screen. Other programs
   receive no shortcut. Confirm the current pane and response before returning
   focus; upload path preparation must never send this application shortcut.
+- Copy joins terminal soft wraps. For application word wrapping without wrap
+  markers, join only overflowing indented `--option` continuations following a
+  simple shell invocation with options. Preserve separate commands, option lists,
+  quoted multiline text, and explicit backslash continuations. This recovery is
+  conservative; do not strip all newlines or infer arbitrary prose wrapping.
+  Clamp copied rows to the current terminal width after a resize.
 - Drag to highlight text, double-click a word, or triple-click a whole line
   (including soft wraps). **Shift-click** extends from the original click or drag
   anchor to the clicked position, including across lines. Highlighting preserves the clipboard. **⌘C** copies
