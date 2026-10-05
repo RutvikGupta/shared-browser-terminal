@@ -19,6 +19,8 @@ Login, an open inbound port, a domain, or a Cloudflare account.
   All selected files upload simultaneously in background workers, with per-file progress and retry/cancel.
 - Copy keeps soft-wrapped lines together. Overflowing, indented command options
   also copy on one line; separate commands keep their line breaks.
+- Hold the mouse button and drag to the terminal’s top or bottom edge to scroll
+  while extending the selection. Release to stop.
 - Scrolling keeps selected text available to copy, including while off-screen,
   and restores its highlight when the matching text is visible again.
 - Persistent browser text selection: drag, release, then **⌘C** to copy on Mac.

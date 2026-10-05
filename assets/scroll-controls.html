@@ -72,6 +72,14 @@ body.sbt-scrolling .xterm-viewport::-webkit-scrollbar { display: none; }
       throw new Error('The active terminal changed. Try again.');
     }
     window.sharedTerminalPrepareInput = () => returnToInput('bottom');
+    window.sharedTerminalSelectionView = async (pane, position) => {
+      const current = pane ? {pane} : await confirmed({action:'status'});
+      const command = {action:'selection', pane:current.pane};
+      if (position !== undefined) command.position = position;
+      const result = await confirmed(command);
+      if (result.pane !== current.pane || !result.selection) throw new Error('The active terminal changed.');
+      return result;
+    };
     async function connect() {
       if (stopped) return;
       try {
@@ -100,7 +108,7 @@ body.sbt-scrolling .xterm-viewport::-webkit-scrollbar { display: none; }
               } else completed?.reject(new Error('Could not reach the terminal. Try again.'));
               flush();
             }
-            if (buffer.length > 8192) current.close();
+            if (buffer.length > 4 * 1024 * 1024) current.close();
           } catch { current.close(); }
         });
         current.addEventListener('close', () => {

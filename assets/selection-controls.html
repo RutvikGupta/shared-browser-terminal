@@ -3,7 +3,7 @@
   // Use xterm's public selection API. tmux mouse reporting otherwise consumes
   // drag selection and clears its highlight when its copy mode exits.
   let drag = null, selecting = false, selectionAnchor = null;
-  let multiple = null, pinned = null;
+  let multiple = null, pinned = null, edgeTimer = null;
   function clearMultiple() {
     if (!multiple) return;
     multiple.layer.remove();
@@ -235,12 +235,171 @@
     const first = Math.min(anchor, end);
     updateSelection(() => term.select(first % term.cols, Math.floor(first / term.cols), Math.abs(end - anchor)));
   }
+  function stopDrag() {
+    clearTimeout(edgeTimer); edgeTimer = null;
+    drag = null;
+  }
+  function edgeDirection(gesture) {
+    if (!gesture.pointer) return 0;
+    const rect = gesture.screen.getBoundingClientRect();
+    const margin = Math.min(4, rect.height / gesture.term.rows / 3);
+    return gesture.pointer.clientY >= rect.bottom - margin ? 1 :
+      gesture.pointer.clientY <= rect.top + margin ? -1 : 0;
+  }
+  function scheduleEdgeScroll() {
+    clearTimeout(edgeTimer); edgeTimer = null;
+    if (!drag || drag.busy || !edgeDirection(drag)) return;
+    const gesture = drag;
+    edgeTimer = setTimeout(() => extendAtEdge(gesture), 100);
+  }
+  async function extendAtEdge(gesture) {
+    if (drag !== gesture || !edgeDirection(gesture)) return;
+    gesture.busy = true;
+    try {
+      if (!gesture.history) {
+        const view = await window.sharedTerminalSelectionView();
+        if (drag !== gesture) return;
+        if (view.selection.width !== gesture.term.cols || view.height !== gesture.term.rows) throw new Error('Terminal resized.');
+        gesture.history = {pane:view.pane, size:view.history, origin:view.history-view.offset, rows:new Map(), cols:gesture.term.cols, application:view.selection.application};
+        gesture.absoluteAnchor = (Math.floor(gesture.anchor / gesture.term.cols) - gesture.term.buffer.active.viewportY + gesture.history.origin) * gesture.term.cols + gesture.anchor % gesture.term.cols;
+        await cacheSelectionView(gesture, view);
+        if (drag !== gesture) return;
+        // Retain the original selection before tmux redraws the viewport.
+        const active = drag; drag = null; preserveForScroll(); drag = active;
+        if (!pinned) throw new Error('No selection to extend.');
+      }
+      const direction = edgeDirection(gesture);
+      const history = gesture.history;
+      if (history.application) {
+        await scrollApplicationSelection(gesture, direction);
+        return;
+      }
+      const position = Math.max(0, Math.min(history.size, history.origin + direction * 3));
+      if (position === history.origin || !direction || drag !== gesture) return;
+      const view = await window.sharedTerminalSelectionView(history.pane, position);
+      if (drag !== gesture) return;
+      if (view.history !== history.size || view.selection.width !== history.cols || view.height !== gesture.term.rows) throw new Error('Terminal output changed.');
+      await cacheSelectionView(gesture, view);
+      if (drag !== gesture) return;
+      history.origin = view.history - view.offset;
+      gesture.busy = false;
+      extendHistorySelection(gesture);
+    } catch {
+      // Keep the last confirmed selection; never send fallback keys to an app.
+      if (drag === gesture) stopDrag();
+    } finally {
+      gesture.busy = false;
+      if (drag === gesture) scheduleEdgeScroll();
+    }
+  }
+  async function scrollApplicationSelection(gesture, direction) {
+    if (!direction) return;
+    const {history, term, screen} = gesture, rect = screen.getBoundingClientRect();
+    const current = await window.sharedTerminalSelectionView(history.pane);
+    if (drag !== gesture) return;
+    if (!current.selection.application || current.selection.width !== history.cols || current.height !== term.rows) throw new Error('Application changed.');
+    // Deliver the same wheel gesture as a user scrolling a mouse-enabled app.
+    // Never synthesize keyboard shortcuts, Enter, Escape, or interrupt signals.
+    screen.dispatchEvent(new WheelEvent('wheel', {bubbles:true, cancelable:true,
+      clientX:rect.left+rect.width/2, clientY:rect.top+rect.height/2,
+      deltaY:direction*3*rect.height/term.rows, deltaMode:0}));
+    for (let attempt = 0; attempt < 3 && drag === gesture; attempt++) {
+      await new Promise(resolve => setTimeout(resolve, 120));
+      if (drag !== gesture) return;
+      const view = await window.sharedTerminalSelectionView(history.pane);
+      if (drag !== gesture) return;
+      if (!view.selection.application || view.selection.width !== history.cols || view.height !== term.rows) throw new Error('Application changed.');
+      const rows = await readSelectionRows(term, view);
+      if (drag !== gesture) return;
+      const movement = matchScrolledRows(history.screen, rows, direction);
+      if (!movement) continue;
+      history.origin += movement.delta;
+      history.region = movement;
+      storeSelectionRows(history, rows, history.origin, movement.top, movement.bottom);
+      gesture.busy = false; extendHistorySelection(gesture);
+      return;
+    }
+    // At a boundary, or during an unrelated redraw, retain the confirmed text
+    // instead of guessing which rows moved or repeatedly injecting wheel events.
+    if (drag === gesture) stopDrag();
+  }
+  function matchScrolledRows(before, after, direction) {
+    let best = null, ambiguous = false;
+    for (let amount = 1; amount <= Math.floor(before.length/2); amount++) {
+      const delta = amount*direction, matches = [];
+      for (let row = 0; row < after.length; row++) {
+        const old = before[row+delta]?.text.trimEnd(), current = after[row].text.trimEnd();
+        if (old && old.length > 8 && current === old && before[row]?.text.trimEnd() !== current) matches.push(row);
+      }
+      if (matches.length < 2 || (best && matches.length < best.count)) continue;
+      if (best && matches.length === best.count) { ambiguous = true; continue; }
+      ambiguous = false;
+      const top = Math.min(matches[0], matches[0]+delta);
+      const last = matches[matches.length-1], bottom = Math.max(last,last+delta);
+      best = {delta, top, bottom, count:matches.length};
+    }
+    return ambiguous ? null : best;
+  }
+  async function cacheSelectionView(gesture, view) {
+    const rows = await readSelectionRows(gesture.term, view);
+    storeSelectionRows(gesture.history, rows, view.history-view.offset, 0, view.height-1);
+  }
+  function storeSelectionRows(history, rows, origin, top, bottom) {
+    history.screen = rows;
+    for (let row = top; row <= bottom; row++) {
+      const value = rows[row], existing = history.rows.get(origin+row);
+      history.rows.set(origin+row, {...value, kind:row === 0 ? existing?.kind : value.kind});
+    }
+  }
+  async function readSelectionRows(term, view) {
+    // Parse captured text through the same terminal API for Unicode cell widths
+    // and soft wraps. The temporary terminal has no socket or DOM element.
+    const scratch = new term.constructor({cols:view.selection.width, rows:view.height+1, scrollback:0, allowProposedApi:true});
+    try {
+      await new Promise(resolve => scratch.write(view.selection.text.replaceAll('\n','\r\n'), resolve));
+      const rows = [];
+      for (let row = 0; row < view.height; row++) {
+        const line = scratch.buffer.active.getLine(row), cells = [];
+        for (let col = 0; col < scratch.cols; col++) {
+          const value = line.getCell(col);
+          cells.push(value.getWidth() === 0 ? '' : value.getChars() || ' ');
+        }
+        rows.push({text:line.translateToString(false,0,scratch.cols), cells, kind:continuation(scratch,row)});
+      }
+      return rows;
+    } finally { scratch.dispose(); }
+  }
+  function extendHistorySelection(gesture) {
+    if (!pinned || !gesture.pointer || gesture.busy) return;
+    const {term, screen, history} = gesture;
+    let local = cell(term, screen, gesture.pointer) - term.buffer.active.viewportY * term.cols;
+    if (history.region) {
+      const row = Math.max(history.region.top, Math.min(history.region.bottom, Math.floor(local/term.cols)));
+      local = row*term.cols + local%term.cols;
+    }
+    const end = history.origin * term.cols + local;
+    const first = Math.min(gesture.absoluteAnchor,end), last = Math.max(gesture.absoluteAnchor,end);
+    const rows = []; let text = '';
+    for (let row = Math.floor(first/term.cols); row <= Math.floor(last/term.cols); row++) {
+      const start = row === Math.floor(first/term.cols) ? first%term.cols : 0;
+      const finish = row === Math.floor(last/term.cols) ? last%term.cols : term.cols;
+      if (finish === 0) break;
+      const value = history.rows.get(row);
+      if (!value) return; // Do not invent unseen rows or bridge a changed viewport.
+      let part = value.cells.slice(start,finish).join('');
+      if (row === Math.floor(last/term.cols) || history.rows.get(row+1)?.kind !== 'soft') part = part.trimEnd();
+      if (rows.length && value.kind === 'option') text = text.trimEnd()+' '+part.trimStart();
+      else text += (rows.length && !value.kind ? '\n' : '')+part;
+      rows.push({text:value.text, before:history.rows.get(row-1)?.text, after:history.rows.get(row+1)?.text, start, end:finish});
+    }
+    pinned.groups = [{text,rows}]; renderPinned();
+  }
   document.addEventListener('mousedown', event => {
     const term = window.term, screen = screenFor(term);
     if (event.button !== 0 || event.altKey || event.ctrlKey || !screen?.contains(event.target)) return;
     if (event.metaKey && overLink(term, screen, event)) return;
     event.preventDefault(); event.stopImmediatePropagation();
-    term.focus();
+    stopDrag(); term.focus();
     if (event.metaKey) {
       drag = null;
       if (pinned?.term === term) togglePinnedLine(term, screen, event);
@@ -258,9 +417,12 @@
   }, true);
   document.addEventListener('mousemove', event => {
     if (!drag) return;
-    if (!(event.buttons & 1)) { drag = null; return; }
+    if (!(event.buttons & 1)) { stopDrag(); return; }
     event.preventDefault(); event.stopImmediatePropagation();
-    selectTo(event);
+    drag.pointer = {clientX:event.clientX, clientY:event.clientY};
+    if (drag.history) extendHistorySelection(drag);
+    else selectTo(event);
+    scheduleEdgeScroll();
   }, true);
   document.addEventListener('mouseup', event => {
     if (event.button === 0 && event.metaKey && screenFor(window.term)?.contains(event.target) && !overLink(window.term, screenFor(window.term), event)) {
@@ -268,7 +430,10 @@
     }
     if (!drag || event.button !== 0) return;
     event.preventDefault(); event.stopImmediatePropagation();
-    selectTo(event); drag = null;
+    drag.pointer = {clientX:event.clientX, clientY:event.clientY};
+    if (drag.history) extendHistorySelection(drag);
+    else selectTo(event);
+    stopDrag();
   }, true);
   function selectWord(term, screen, event) {
     const position = cell(term, screen, event);
@@ -325,15 +490,22 @@
     }, true);
   }
   document.addEventListener('wheel', event => {
+    if (event.isTrusted && drag?.history) stopDrag();
     if (screenFor(window.term)?.contains(event.target) || event.target.closest?.('#sbt-scrollbar')) preserveForScroll();
   }, {capture:true, passive:true});
   document.addEventListener('pointerdown', event => {
+    const screen = screenFor(window.term);
+    if (event.button === 0 && !event.altKey && !event.ctrlKey && !event.metaKey && screen?.contains(event.target)) screen.setPointerCapture(event.pointerId);
     if (event.target.closest?.('#sbt-scrollbar, #sbt-bottom')) preserveForScroll();
   }, true);
   document.addEventListener('keydown', event => {
     if (event.target.closest?.('#sbt-scrollbar') && ['ArrowUp','ArrowDown','PageUp','PageDown','Home','End'].includes(event.key)) preserveForScroll();
   }, true);
-  window.addEventListener('blur', () => { drag = null; });
+  document.addEventListener('lostpointercapture', event => { if (drag?.screen === event.target) stopDrag(); }, true);
+  window.addEventListener('blur', stopDrag);
+  window.addEventListener('resize', stopDrag);
+  window.addEventListener('pagehide', stopDrag);
+  document.addEventListener('visibilitychange', () => { if (document.hidden) stopDrag(); });
   document.addEventListener('copy', event => {
     if (selecting) {
       event.preventDefault(); event.stopImmediatePropagation();
@@ -347,7 +519,7 @@
   document.addEventListener('keydown', event => {
     const term = window.term;
     if (event.key === 'Escape' && (multiple || pinned) && focused(term)) {
-      clearPinned(); clearMultiple(); event.preventDefault(); event.stopImmediatePropagation(); return;
+      stopDrag(); clearPinned(); clearMultiple(); event.preventDefault(); event.stopImmediatePropagation(); return;
     }
     const shortcut = event.key.toLowerCase() === 'c' && !event.altKey &&
       ((event.metaKey && !event.ctrlKey) || (event.ctrlKey && event.shiftKey && !event.metaKey));

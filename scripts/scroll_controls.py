@@ -22,7 +22,7 @@ def main():
 
 def control(session, request):
     state = snapshot(session)
-    if not isinstance(request, dict) or request.get('action') not in ('status', 'bottom', 'scroll', 'latest'):
+    if not isinstance(request, dict) or request.get('action') not in ('status', 'bottom', 'scroll', 'latest', 'selection'):
         raise ValueError('Unsupported scroll action')
     if request['action'] == 'status':
         return state
@@ -35,7 +35,7 @@ def control(session, request):
             tmux('send-keys', '-X', '-t', pane, 'cancel')
         if request['action'] == 'latest' and codex_owns_screen(pane):
             tmux('send-keys', '-t', pane, 'C-End')
-    else:
+    elif request['action'] != 'selection' or 'position' in request:
         position = request.get('position')
         if type(position) is not int:
             raise ValueError('Invalid scroll position')
@@ -48,7 +48,18 @@ def control(session, request):
                 tmux('copy-mode', '-t', pane)
             tmux('send-keys', '-X', '-t', pane, 'history-bottom')
             tmux('send-keys', '-X', '-N', str(offset), '-t', pane, 'scroll-up')
-    return snapshot(session)
+    state = snapshot(session)
+    if request['action'] == 'selection' and state['pane'] == pane and state['mode'] in ('', 'copy-mode'):
+        width = int(tmux('display-message', '-p', '-t', pane, '#{pane_width}').strip())
+        if not 1 <= width <= 1000 or not 1 <= state['height'] <= 500:
+            raise ValueError('Terminal dimensions exceed selection limit')
+        text = tmux('capture-pane', '-p', '-J', '-t', pane,
+                    '-S', str(-state['offset']), '-E', str(state['height'] - 1 - state['offset']))
+        if len(text) > 500000 or snapshot(session) != state:
+            raise ValueError('Terminal changed during selection capture')
+        application = tmux('display-message', '-p', '-t', pane, '#{alternate_on} #{mouse_any_flag}').strip() == '1 1'
+        state['selection'] = {'text': text, 'width': width, 'application': application and state['mode'] == ''}
+    return state
 
 
 def codex_owns_screen(pane):

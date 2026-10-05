@@ -264,6 +264,51 @@ terminal.restart_ttyd(state,config)
     console.log('PASS: partial and disjoint selections survive wheel/scrollbar redraws; off-screen copy stays exact; highlights return and Escape clears without program input.');
     console.log('PASS: visible scrollbar clicks/drags tmux history; bottom button returns to live output without sending input.');
 
+    // Dragging against either edge reveals history and grows one continuous selection.
+    const inputBeforeEdge=fs.readFileSync(path.join(state,'input.bin'));
+    await page.evaluate(()=>{delete navigator.clipboard.writeText});
+    for (const direction of [1,-1]) {
+      await page.evaluate(async direction=>{
+        await window.sharedTerminalSelectionView(undefined,direction>0?5:35);
+      },direction);
+      await page.waitForTimeout(200);
+      await page.evaluate(()=>window.term.focus());
+      const geometry=await page.evaluate(()=>{const t=window.term,r=t.element.querySelector('.xterm-screen').getBoundingClientRect();return {x:r.x,y:r.y,w:r.width/t.cols,h:r.height/t.rows,rows:t.rows,bottom:r.bottom}});
+      const anchorRow=direction>0?2:geometry.rows-3;
+      const anchorLine=await page.evaluate(row=>{const t=window.term;return t.buffer.active.getLine(t.buffer.active.viewportY+row).translateToString(true)},anchorRow);
+      await page.evaluate(()=>navigator.clipboard.writeText('not automatically copied'));
+      await page.mouse.move(geometry.x+0.1*geometry.w,geometry.y+(anchorRow+.5)*geometry.h);
+      await page.mouse.down();
+      await page.mouse.move(geometry.x+16.1*geometry.w,direction>0?geometry.bottom-1:geometry.y+1,{steps:8});
+      await page.waitForFunction(direction=>{
+        const value=Number(document.querySelector('#sbt-scrollbar').getAttribute('aria-valuenow'));
+        return direction>0?value>=17:value<=23;
+      },direction,{timeout:10000});
+      await page.mouse.up();
+      await page.waitForTimeout(300);
+      const stopped=await page.locator('#sbt-scrollbar').getAttribute('aria-valuenow');
+      await page.waitForTimeout(400);
+      assert.equal(await page.locator('#sbt-scrollbar').getAttribute('aria-valuenow'),stopped,'releasing the mouse stops automatic scrolling');
+      assert.equal(await page.evaluate(()=>navigator.clipboard.readText()),'not automatically copied','edge scrolling does not copy automatically');
+      await page.keyboard.press('Meta+c');
+      const copied=await page.evaluate(()=>navigator.clipboard.readText());
+      const lines=copied.split('\n');
+      const ids=lines.map(line=>Number(line.match(/line (\d+)/)?.[1]));
+      // The partial endpoint can cut before the number; all interior rows must
+      // be present once, in order, with no history-counter or timestamp artifacts.
+      const interior=ids.slice(1,-1);
+      assert(interior.length>geometry.rows-4,'selection extends beyond one viewport');
+      for(let i=1;i<interior.length;i++)assert.equal(interior[i],interior[i-1]+1,'selection contains consecutive history rows without gaps or duplicates');
+      if(direction>0)assert.equal(lines[0],anchorLine.trimEnd(),'downward drag retains the original anchor');
+      else assert(copied.endsWith('\n')||copied.includes(anchorLine.slice(0,16)),'upward drag retains original rows');
+      assert(!/\[\d+\/\d+\]/.test(copied),'tmux history counters are not copied');
+      assert.deepEqual(fs.readFileSync(path.join(state,'input.bin')),inputBeforeEdge,'edge scrolling sends no input to the program');
+      await page.keyboard.press('Escape');
+    }
+    await page.getByRole('button',{name:'Scroll to bottom',exact:true}).click();
+    await page.waitForFunction(()=>window.term.element.contains(document.activeElement) && !document.querySelector('#sbt-bottom').disabled);
+    console.log('PASS: dragging at both edges scrolls history, extends the selection beyond the viewport, and stops on release without clipboard or program input side effects.');
+
     // Sample through real redraws and then idle, without any keyboard input.
     await page.evaluate(() => {
       window.cursorSamples=[];
@@ -356,6 +401,69 @@ terminal.restart_ttyd(state,config)
     await display(command+' '+option+'\r\necho separate-command');
     assert.equal(await copyRows(3),command+' '+option+'\necho separate-command','copy remains exact after narrowing the browser');
     console.log('PASS: real tmux soft wraps, application-wrapped command options, resize, triple/Command-click, clipboard fallback, and intentional multiline text.');
+
+    // A separate full-screen fixture owns its own transcript scroll, like Codex.
+    // Verify wheel-only input and preserve the fixed draft area outside selection.
+    fs.writeFileSync(path.join(state,'app.py'),String.raw`
+import os,re,tty,signal
+from pathlib import Path
+tty.setraw(0)
+position=60
+pending=b''
+def render(*args):
+    global position
+    width,height=os.get_terminal_size(0)
+    body=height-3
+    position=max(0,min(200-body,position))
+    chunks=['\x1b[?1049h\x1b[?1000h\x1b[?1006h\x1b[2J\x1b[HSTATIC APP HEADER']
+    for row in range(body):
+        chunks.append(f'\x1b[{row+2};1HApplication transcript line {position+row:03d} alpha beta café 你好')
+    chunks.append(f'\x1b[{height-1};1HDraft stays here\x1b[{height};1HSTATIC APP FOOTER')
+    os.write(1,''.join(chunks).encode())
+signal.signal(signal.SIGWINCH,render)
+render()
+while True:
+    data=os.read(0,4096)
+    if not data:break
+    with Path(__file__).with_name('app-input.bin').open('ab') as out:out.write(data)
+    pending+=data
+    while match:=re.search(rb'\x1b\[<(64|65);\d+;\d+[Mm]',pending):
+        position+=3 if match[1]==b'65' else -3
+        pending=pending[match.end():]
+        render()
+`);
+    execFileSync('tmux',['new-window','-t','=selection-test:','-c',state,'python3 '+path.join(state,'app.py')],{env});
+    await page.waitForFunction(()=>window.term.buffer.active.getLine(0)?.translateToString().includes('STATIC APP HEADER'));
+    for(const direction of [1,-1]) {
+      const geometry=await page.evaluate(()=>{const t=window.term,r=t.element.querySelector('.xterm-screen').getBoundingClientRect();return {x:r.x,y:r.y,w:r.width/t.cols,h:r.height/t.rows,rows:t.rows,bottom:r.bottom}});
+      const startRow=direction>0?3:geometry.rows-5;
+      const initial=await page.evaluate(()=>window.term.buffer.active.getLine(1).translateToString());
+      const initialId=Number(initial.match(/line (\d+)/)[1]);
+      await page.mouse.move(geometry.x+.1*geometry.w,geometry.y+(startRow+.5)*geometry.h);await page.mouse.down();
+      await page.mouse.move(geometry.x+16.1*geometry.w,direction>0?geometry.bottom-1:geometry.y+1,{steps:8});
+      await page.waitForFunction(({initialId,direction})=>{
+        const id=Number(window.term.buffer.active.getLine(1).translateToString().match(/line (\d+)/)?.[1]);
+        return (id-initialId)*direction>=9;
+      },{initialId,direction},{timeout:10000});
+      await page.mouse.up();
+      await page.waitForTimeout(350);
+      const stopped=await page.evaluate(()=>window.term.buffer.active.getLine(1).translateToString());
+      await page.waitForTimeout(450);
+      assert.equal(await page.evaluate(()=>window.term.buffer.active.getLine(1).translateToString()),stopped,'application scrolling stops after release');
+      await page.evaluate(()=>navigator.clipboard.writeText('before application copy'));
+      await page.keyboard.press('Meta+c');
+      const copied=await page.evaluate(()=>navigator.clipboard.readText());
+      assert(copied.includes('Application transcript line'),'copy contains the application transcript');
+      assert(!copied.includes('Draft stays here')&&!copied.includes('STATIC APP'),'fixed interface rows are excluded from extended selection');
+      const ids=[...copied.matchAll(/transcript line (\d+)/g)].map(match=>Number(match[1]));
+      assert(ids.length>geometry.rows-6,'application selection extends beyond one screen');
+      for(let i=1;i<ids.length;i++)assert.equal(ids[i],ids[i-1]+1,'application transcript copies consecutively');
+      await page.keyboard.press('Escape');
+    }
+    const appInput=fs.readFileSync(path.join(state,'app-input.bin'),'utf8');
+    assert(appInput.includes('\x1b[<64;')&&appInput.includes('\x1b[<65;'),'both wheel directions reached the app');
+    assert.equal(appInput.replace(/\x1b\[<(?:64|65);\d+;\d+[Mm]/g,''),'','only wheel reports reach the application, no command or interrupt keys');
+    console.log('PASS: a Codex-style full-screen transcript scrolls at both edges, extends copied text in order, excludes the draft, and receives only wheel reports.');
 
     console.log('PASS: forward/reverse drag persists; Command+C and Ctrl+Shift+C copy exact text without shell input; Ctrl+C interrupts; wheel scrollback and Upload remain available.');
   } finally {

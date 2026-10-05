@@ -85,6 +85,15 @@ notification is needed. Never announce an unverified URL or send credentials.
   quoted multiline text, and explicit backslash continuations. This recovery is
   conservative; do not strip all newlines or infer arbitrary prose wrapping.
   Clamp copied rows to the current terminal width after a resize.
+- Holding a drag at the top/bottom edge scrolls and extends the selection.
+  Stop on release, lost pointer capture, blur, resize, or hidden page. Keep one
+  scroll request in flight; preserve the last confirmed selection on failure.
+  Use tmux history controls for shells and wheel reports for mouse-enabled
+  alternate-screen apps such as Codex. Confirm the pane before scrolling; never
+  inject keyboard commands. Capture bounded viewport text through the authenticated
+  control channel, preserving Unicode cell widths and soft wraps. For app-owned
+  scrolling, require unambiguous overlapping rows and exclude fixed draft/footer
+  rows; stop if output changes cannot be matched safely.
 - Drag to highlight text, double-click a word, or triple-click a whole line
   (including soft wraps). **Shift-click** extends from the original click or drag
   anchor to the clicked position, including across lines. Highlighting preserves the clipboard. **⌘C** copies

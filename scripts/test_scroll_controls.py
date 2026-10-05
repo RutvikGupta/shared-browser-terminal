@@ -39,6 +39,29 @@ class ScrollControlsTests(unittest.TestCase):
             tmux.assert_not_called()
 
 
+class SelectionCaptureTests(unittest.TestCase):
+    def test_capture_returns_joined_viewport_without_sending_keys(self):
+        state = {'type': 'state', 'pane': '%2', 'history': 100, 'offset': 40, 'mode': 'copy-mode', 'height': 30}
+        with patch('scroll_controls.snapshot', return_value=state.copy()), patch('scroll_controls.tmux', side_effect=['144', 'long wrapped line\nnext line\n', '0 0']) as tmux:
+            result = control('test', {'action': 'selection', 'pane': '%2'})
+        self.assertEqual(result['selection'], {'width': 144, 'text': 'long wrapped line\nnext line\n', 'application': False})
+        self.assertEqual(tmux.call_args_list, [call('display-message', '-p', '-t', '%2', '#{pane_width}'),
+            call('capture-pane', '-p', '-J', '-t', '%2', '-S', '-40', '-E', '-11'),
+            call('display-message', '-p', '-t', '%2', '#{alternate_on} #{mouse_any_flag}')])
+
+    def test_capture_rejects_output_changes(self):
+        before = {'pane': '%2', 'history': 100, 'offset': 40, 'mode': 'copy-mode', 'height': 30}
+        after = dict(before, history=101)
+        with patch('scroll_controls.snapshot', side_effect=[before, before, after]), patch('scroll_controls.tmux', side_effect=['144', 'text\n']):
+            with self.assertRaises(ValueError):
+                control('test', {'action': 'selection', 'pane': '%2'})
+
+    def test_stale_pane_does_not_scroll_or_capture_another_program(self):
+        with patch('scroll_controls.snapshot', return_value={'pane':'%3', 'mode':''}), patch('scroll_controls.tmux') as tmux:
+            control('test', {'action':'selection', 'pane':'%2', 'position':20})
+        tmux.assert_not_called()
+
+
 class CodexBottomTests(unittest.TestCase):
     def test_latest_exits_copy_mode_then_jumps_in_codex(self):
         state = {'pane': '%2', 'mode': 'copy-mode'}

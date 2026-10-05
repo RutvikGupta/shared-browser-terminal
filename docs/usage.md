@@ -163,6 +163,12 @@ previous redraw-hiding workaround.
 
 ## Highlight and copy
 
+Hold the mouse button while selecting and move to the bottom edge to scroll down,
+or the top edge to scroll up. Keep holding to extend the selection beyond the
+visible screen; release to stop. This works with tmux history and mouse-enabled
+full-screen applications such as Codex. If the pane changes or a redraw cannot be
+matched safely, scrolling stops and retains the last confirmed selection.
+
 Scrolling with the wheel or scrollbar keeps the selected text available to copy,
 even when it moves off-screen. Its highlight returns when the matching text is
 visible again. A new selection, typing, Escape, or resizing clears the retained
@@ -197,8 +203,8 @@ on an HTTP/HTTPS link still opens the link.
 
 Ordinary dragging selects in the browser, even with tmux mouse mode enabled.
 Wheel/trackpad scrolling still reaches tmux history. Scroll to the desired output
-first, then highlight the visible text; drag selection is limited to the visible
-screen. Hold **Option/Alt** while clicking to use the terminal's normal mouse
+first, then highlight text or drag against the top/bottom edge to extend the
+selection through additional rows. Hold **Option/Alt** while clicking to use the terminal's normal mouse
 handling instead. Browser/application shortcuts with modifiers are preserved.
 
 Refresh an existing browser tab after upgrading to load the selection controls.
