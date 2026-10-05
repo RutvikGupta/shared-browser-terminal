@@ -193,6 +193,8 @@ terminal.restart_ttyd(state,config)
     assert(outside,'Shift+Enter outside the terminal is not intercepted');
     await page.evaluate(()=>window.term.focus());
     console.log('PASS: Shift+Enter newline alias survives tmux; Enter, other modifiers, IME, and non-terminal controls are preserved.');
+    await drag();
+    const selectedBeforeScroll=await page.evaluate(()=>window.term.getSelection());
     await page.mouse.wheel(0,-500);
     let copying='';
     for(let i=0;i<50;i++) {
@@ -201,6 +203,16 @@ terminal.restart_ttyd(state,config)
       await new Promise(r=>setTimeout(r,20));
     }
     assert.equal(copying,'1','wheel must still enter tmux scrollback');
+    await page.waitForTimeout(200);
+    await page.keyboard.press('Meta+c');
+    assert.equal(await page.evaluate(()=>navigator.clipboard.readText()),selectedBeforeScroll,'scrolling must preserve selected text for copying');
+    await page.waitForFunction(()=>document.querySelectorAll('.sbt-pinned-highlight').length===1);
+    assert(await page.evaluate(expected=>{
+      const t=window.term, mark=document.querySelector('.sbt-pinned-highlight');
+      const row=Math.round(parseFloat(mark.style.top)*t.rows/100);
+      const col=Math.round(parseFloat(mark.style.left)*t.cols/100);
+      return t.buffer.active.getLine(t.buffer.active.viewportY+row).translateToString(true,col).startsWith(expected);
+    },selectedBeforeScroll),'highlight follows the original text to its new screen row');
     assert(await page.getByRole('button',{name:'Upload documents',exact:true}).isVisible());
     const rawBeforeScroll=fs.readFileSync(path.join(state,'input.bin'));
     const scrollbar=page.getByRole('scrollbar',{name:'Terminal history'});
@@ -210,6 +222,10 @@ terminal.restart_ttyd(state,config)
     await page.mouse.click(bounds.x+bounds.width/2,bounds.y+4);
     await page.waitForFunction(()=>Number(document.querySelector('#sbt-scrollbar').getAttribute('aria-valuenow'))<5);
     assert.equal(execFileSync('tmux',['display-message','-p','-t','selection-test:0.0','#{pane_in_mode}'],{env,encoding:'utf8'}).trim(),'1','scrollbar accesses tmux history');
+    await page.waitForFunction(()=>document.querySelectorAll('.sbt-pinned-highlight').length===0);
+    await page.evaluate(()=>Object.getPrototypeOf(navigator.clipboard).writeText.call(navigator.clipboard,'before off-screen copy'));
+    await page.keyboard.press('Meta+c');
+    assert.equal(await page.evaluate(()=>navigator.clipboard.readText()),selectedBeforeScroll,'off-screen selection remains copyable while the scrollbar has focus');
     // Drag down, then jump all the way to live output.
     await page.mouse.move(bounds.x+bounds.width/2,bounds.y+8);await page.mouse.down();
     await page.mouse.move(bounds.x+bounds.width/2,bounds.y+bounds.height*0.6,{steps:8});await page.mouse.up();
@@ -222,7 +238,30 @@ terminal.restart_ttyd(state,config)
     assert.equal(execFileSync('tmux',['display-message','-p','-t','selection-test:0.0','#{pane_in_mode}'],{env,encoding:'utf8'}).trim(),'0','bottom button leaves copy mode');
     await page.getByRole('button',{name:'Scroll to bottom',exact:true}).click();
     assert.deepEqual(fs.readFileSync(path.join(state,'input.bin')),rawBeforeScroll,'scroll controls never send program input, even when already at bottom');
+    await page.waitForFunction(()=>document.querySelectorAll('.sbt-pinned-highlight').length===1 && window.term.element.contains(document.activeElement) && !document.querySelector('#sbt-bottom').disabled);
+    await page.evaluate(()=>Object.getPrototypeOf(navigator.clipboard).writeText.call(navigator.clipboard,'before restored copy'));
+    await page.keyboard.press('Meta+c');
+    assert.equal(await page.evaluate(()=>navigator.clipboard.readText()),selectedBeforeScroll,'returning to the bottom restores the same selection');
+    await page.keyboard.press('Escape');
+    assert.equal(await page.locator('#sbt-pinned-selection').count(),0,'Escape clears retained selection without reaching the program');
+    assert.deepEqual(fs.readFileSync(path.join(state,'input.bin')),rawBeforeScroll,'retaining, copying, and clearing highlights sends no program input');
+    // Disjoint Command-click selections must survive the same redraw path.
+    await page.mouse.click(location.x+5*location.w,location.y+0.5*location.h);
+    await page.keyboard.down('Meta');
+    await page.mouse.click(location.x+5*location.w,location.y+0.5*location.h);
+    await page.mouse.click(location.x+5*location.w,location.y+2.5*location.h);
+    await page.keyboard.up('Meta');
+    await page.keyboard.press('Meta+c');
+    const disjoint=await page.evaluate(()=>navigator.clipboard.readText());
+    await page.mouse.wheel(0,-500);
+    await page.waitForTimeout(250);
+    await page.keyboard.press('Meta+c');
+    assert.equal(await page.evaluate(()=>navigator.clipboard.readText()),disjoint,'disjoint selections retain both original lines through scrolling');
+    await page.getByRole('button',{name:'Scroll to bottom',exact:true}).click();
+    await page.waitForFunction(()=>window.term.element.contains(document.activeElement) && !document.querySelector('#sbt-bottom').disabled);
+    await page.keyboard.press('Escape');
     await page.screenshot({path:path.join(os.tmpdir(),'sbt-scroll-controls.png')});
+    console.log('PASS: partial and disjoint selections survive wheel/scrollbar redraws; off-screen copy stays exact; highlights return and Escape clears without program input.');
     console.log('PASS: visible scrollbar clicks/drags tmux history; bottom button returns to live output without sending input.');
 
     // Sample through real redraws and then idle, without any keyboard input.

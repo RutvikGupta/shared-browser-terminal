@@ -92,7 +92,11 @@ notification is needed. Never announce an unverified URL or send credentials.
 - **Command-click** ordinary text to toggle separate logical lines in a selection.
   **⌘C** copies those lines in display order, omitting unselected lines. An
   ordinary click or Escape clears it; highlighting never copies automatically.
-  Selections clear if their text changes or the terminal resizes.
+  Wheel and scrollbar gestures retain an immutable selection while tmux redraws.
+  Keep it copyable off-screen and restore highlights only on matching visible
+  rows; do not highlight ambiguous duplicates. Preserve partial and disjoint
+  selections. A new ordinary selection, typing, Escape, or resize clears retained
+  selections. Live disjoint selections still clear if their text changes.
 - **Command-click** a visible HTTP/HTTPS URL to open it in a new browser tab.
   Ordinary clicks and drags retain text selection.
 - **Shift+Enter** adds a newline in the Codex composer; Enter submits normally.

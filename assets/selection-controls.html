@@ -3,12 +3,92 @@
   // Use xterm's public selection API. tmux mouse reporting otherwise consumes
   // drag selection and clears its highlight when its copy mode exits.
   let drag = null, selecting = false, selectionAnchor = null;
-  let multiple = null;
+  let multiple = null, pinned = null;
   function clearMultiple() {
     if (!multiple) return;
     multiple.layer.remove();
     multiple.listeners.forEach(listener => listener.dispose());
     multiple = null;
+  }
+  function clearPinned() {
+    if (!pinned) return;
+    pinned.layer.remove();
+    pinned.listeners.forEach(listener => listener.dispose());
+    pinned = null;
+  }
+  function preserveForScroll() {
+    const term = window.term;
+    if (!term || pinned || drag) return;
+    const text = selectedText(term);
+    if (!text) return;
+    const groups = [];
+    if (multiple?.term === term) {
+      for (const line of [...multiple.lines.values()].sort((a, b) => a.first - b.first)) {
+        groups.push(captureGroup(term, {x:0, y:line.first}, {x:term.cols, y:line.last}, line.text));
+      }
+    } else {
+      const selection = term.getSelectionPosition();
+      if (!selection) return;
+      groups.push(captureGroup(term, selection.start, selection.end, text));
+    }
+    clearMultiple();
+    updateSelection(() => term.clearSelection());
+    selectionAnchor = null;
+    const layer = document.createElement('div'); layer.id = 'sbt-pinned-selection';
+    layer.setAttribute('aria-hidden', 'true');
+    Object.assign(layer.style, {position:'absolute', inset:'0', pointerEvents:'none', zIndex:'5'});
+    screenFor(term).append(layer);
+    pinned = {term, cols:term.cols, groups, layer, listeners:[]};
+    pinned.listeners = [term.onRender(renderPinned), term.onScroll(renderPinned), term.onResize(clearPinned)];
+    renderPinned();
+  }
+  function captureGroup(term, start, end, text) {
+    const buffer = term.buffer.active, rows = [];
+    const full = y => buffer.getLine(y)?.translateToString(false, 0, term.cols);
+    for (let y = start.y; y <= end.y; y++) {
+      if (y === end.y && end.x === 0) break;
+      rows.push({text:full(y), before:full(y - 1), after:full(y + 1),
+        start:y === start.y ? start.x : 0, end:y === end.y ? end.x : term.cols});
+    }
+    return {text, rows};
+  }
+  function renderPinned() {
+    if (!pinned) return;
+    const {term, cols, groups, layer} = pinned, buffer = term.buffer.active;
+    if (term.cols !== cols) { clearPinned(); return; }
+    layer.replaceChildren();
+    const visible = [];
+    for (let y = buffer.viewportY; y < buffer.viewportY + term.rows; y++) {
+      visible.push(buffer.getLine(y)?.translateToString(false, 0, cols));
+    }
+    for (const group of groups) for (const row of group.rows) {
+      // tmux adds its history counter at the right edge of the top row.
+      // Ignore changes in padding after the original content, not changes to it.
+      let matches = visible.flatMap((text, index) => text?.startsWith(row.text.trimEnd()) ? [index] : []);
+      if (matches.length > 1) {
+        matches = matches.filter(index => (index > 0 && visible[index - 1] === row.before) ||
+          (index + 1 < visible.length && visible[index + 1] === row.after));
+      }
+      // Never paint an unrelated duplicate row as selected. Off-screen text is
+      // still available to Copy; the immutable snapshot cannot drift on redraw.
+      if (matches.length !== 1) continue;
+      const highlight = document.createElement('div'); highlight.className = 'sbt-pinned-highlight';
+      Object.assign(highlight.style, {position:'absolute', left:(row.start / cols * 100)+'%',
+        width:((row.end - row.start) / cols * 100)+'%', top:(matches[0] / term.rows * 100)+'%',
+        height:(100 / term.rows)+'%', opacity:'0.5',
+        background:term.options.theme?.selectionBackground || 'rgba(90,130,190,.4)'});
+      layer.append(highlight);
+    }
+  }
+  function togglePinnedLine(term, screen, event) {
+    const line = logicalLine(term, Math.floor(cell(term, screen, event) / term.cols));
+    const group = captureGroup(term, {x:0, y:line.first}, {x:term.cols, y:line.last}, line.text);
+    const index = pinned.groups.findIndex(item => item.text === group.text &&
+      JSON.stringify(item.rows) === JSON.stringify(group.rows));
+    if (index < 0) pinned.groups.push(group);
+    else pinned.groups.splice(index, 1);
+    if (!pinned.groups.length) clearPinned();
+    else renderPinned();
   }
   function logicalLine(term, row, recoverOptions = true) {
     const buffer = term.buffer.active;
@@ -77,6 +157,7 @@
     else renderMultiple();
   }
   function selectedText(term) {
+    if (pinned?.term === term) return pinned.groups.map(group => group.text).join('\n');
     if (multiple?.term === term) {
       renderMultiple();
       if (multiple) return [...multiple.lines.values()].sort((a,b) => a.first-b.first).map(line => line.text).join('\n');
@@ -134,7 +215,8 @@
     selectionAnchor = {term, buffer: term.buffer.active, cols: term.cols, position};
   }
   const screenFor = term => term?.element?.querySelector('.xterm-screen');
-  const focused = term => term?.element?.contains(document.activeElement);
+  const focused = term => term?.element?.contains(document.activeElement) ||
+    (pinned?.term === term && ['sbt-scrollbar', 'sbt-bottom'].includes(document.activeElement?.id));
   function updateSelection(action) {
     // ttyd's selection-change listener calls execCommand('copy'). Suppress only
     // those synchronous copies; explicit keyboard/menu copy still works.
@@ -159,8 +241,13 @@
     if (event.metaKey && overLink(term, screen, event)) return;
     event.preventDefault(); event.stopImmediatePropagation();
     term.focus();
-    if (event.metaKey) { drag = null; toggleLine(term, screen, event); return; }
-    clearMultiple();
+    if (event.metaKey) {
+      drag = null;
+      if (pinned?.term === term) togglePinnedLine(term, screen, event);
+      else toggleLine(term, screen, event);
+      return;
+    }
+    clearPinned(); clearMultiple();
     const previous = selectionAnchor;
     const extend = event.shiftKey && previous?.term === term && previous.buffer === term.buffer.active && previous.cols === term.cols;
     const anchor = extend ? previous.position : cell(term, screen, event);
@@ -237,6 +324,15 @@
       }
     }, true);
   }
+  document.addEventListener('wheel', event => {
+    if (screenFor(window.term)?.contains(event.target) || event.target.closest?.('#sbt-scrollbar')) preserveForScroll();
+  }, {capture:true, passive:true});
+  document.addEventListener('pointerdown', event => {
+    if (event.target.closest?.('#sbt-scrollbar, #sbt-bottom')) preserveForScroll();
+  }, true);
+  document.addEventListener('keydown', event => {
+    if (event.target.closest?.('#sbt-scrollbar') && ['ArrowUp','ArrowDown','PageUp','PageDown','Home','End'].includes(event.key)) preserveForScroll();
+  }, true);
   window.addEventListener('blur', () => { drag = null; });
   document.addEventListener('copy', event => {
     if (selecting) {
@@ -250,12 +346,16 @@
   }, true);
   document.addEventListener('keydown', event => {
     const term = window.term;
-    if (event.key === 'Escape' && multiple && focused(term)) {
-      clearMultiple(); event.preventDefault(); event.stopImmediatePropagation(); return;
+    if (event.key === 'Escape' && (multiple || pinned) && focused(term)) {
+      clearPinned(); clearMultiple(); event.preventDefault(); event.stopImmediatePropagation(); return;
     }
     const shortcut = event.key.toLowerCase() === 'c' && !event.altKey &&
       ((event.metaKey && !event.ctrlKey) || (event.ctrlKey && event.shiftKey && !event.metaKey));
-    if (!shortcut || !focused(term) || !selectedText(term)) return;
+    if (!shortcut) {
+      if (pinned && term?.element?.contains(document.activeElement) && !['Shift','Meta','Control','Alt','PageUp','PageDown'].includes(event.key)) clearPinned();
+      return;
+    }
+    if (!focused(term) || !selectedText(term)) return;
     event.preventDefault(); event.stopImmediatePropagation();
     const fallback = () => {
       if (!document.execCommand('copy')) alert('Copy was blocked by the browser. Allow clipboard access and try again.');

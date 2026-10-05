@@ -163,6 +163,12 @@ previous redraw-hiding workaround.
 
 ## Highlight and copy
 
+Scrolling with the wheel or scrollbar keeps the selected text available to copy,
+even when it moves off-screen. Its highlight returns when the matching text is
+visible again. A new selection, typing, Escape, or resizing clears the retained
+selection. Repeated identical rows are highlighted only when they can be matched
+unambiguously; copying always uses the text originally selected.
+
 Soft-wrapped lines copy without extra newlines. Some applications render wrapped
 commands using ordinary line breaks; copying also joins an indented `--option`
 when it could not fit on the preceding row of a simple command with options.
@@ -184,8 +190,9 @@ same starting point. Selection never copies automatically; use **⌘C** to copy.
 
 Command-click ordinary text to add or remove separate logical lines. **⌘C**
 copies selected lines in display order without the intervening lines. An
-ordinary click or Escape clears the selection. Changed text or a terminal resize
-also clears it, so stale highlights cannot copy different output. Command-click
+ordinary click or Escape clears the selection. Before scrolling, changed text
+clears a live disjoint selection. Once scrolling retains a selection, Copy uses
+the captured text rather than newly drawn output. Resizing clears it. Command-click
 on an HTTP/HTTPS link still opens the link.
 
 Ordinary dragging selects in the browser, even with tmux mouse mode enabled.
