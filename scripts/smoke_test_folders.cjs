@@ -85,6 +85,18 @@ terminal.restart_ttyd(state,config)
   const raw=path.join(state,'input.bin');
   await page.evaluate(()=>window.term.paste('existing draft'));
   await page.locator('#sbt-upload').click();
+  assert(!(await page.locator('#sbt-choose-folder').isVisible()),'folder choice is hidden under Browse');
+  await page.locator('#sbt-choose').click();
+  await page.keyboard.press('Escape');
+  assert(!(await page.locator('#sbt-choose-folder').isVisible()),'Escape closes Browse choices');
+  assert(await page.locator('#sbt-dialog').isVisible(),'Escape keeps the upload dialog open');
+  await page.locator('#sbt-choose').click();
+  await page.locator('#sbt-upload-title').click();
+  assert(!(await page.locator('#sbt-choose-folder').isVisible()),'outside click closes Browse choices');
+  await page.locator('#sbt-choose').click();
+  const fileChooser=page.waitForEvent('filechooser');await page.locator('#sbt-choose-files').click();await (await fileChooser).setFiles([]);
+  assert(!(await page.locator('#sbt-choose-folder').isVisible()),'choosing files closes Browse choices');
+  await page.locator('#sbt-choose').click();
   const chooser=page.waitForEvent('filechooser');await page.locator('#sbt-choose-folder').click();await (await chooser).setFiles(folder);
   await page.waitForFunction(()=>window.saved.length===3,null,{timeout:90000});
   await page.locator('#sbt-dialog').waitFor({state:'hidden',timeout:15000});

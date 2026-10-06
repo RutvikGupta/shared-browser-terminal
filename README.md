@@ -142,8 +142,7 @@ python3 scripts/browser_terminal.py stop
 
 ## Upload documents
 
-Refresh the terminal page after upgrading. Click **↑ Upload → Browse** for files
-or **Choose folder** for a folder. You can also drop files or folders onto the terminal.
+Refresh the terminal page after upgrading. Click **↑ Upload → Browse**, then **Files** or **Folder**. You can also drop files or folders onto the terminal.
 Subfolders and duplicate filenames in separate subfolders are preserved. Each
 completed folder inserts one folder path, after all its files finish. Drag a folder
 to include empty subfolders; browser folder pickers only provide files.

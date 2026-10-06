@@ -281,7 +281,7 @@ inside a Codex/Claude chat composer.
 
 ## Upload documents
 
-Click **↑ Upload → Browse** for files or **Choose folder** for a folder.
+Click **↑ Upload → Browse**, then **Files** or **Folder**.
 Drag files or folders onto the terminal or into the drop area. Use ⌘-click on Mac,
 Ctrl-click on Windows/Linux, or Shift-click for a range in the file picker. All files appear in one persistent list, with queued,
 connecting, uploading, uploaded, canceled, or failed status. Each compact row shows its

@@ -10,6 +10,12 @@
 .sbt-icon { border: 0; background: transparent; color: #aaa; font: 22px system-ui; cursor: pointer; padding: 4px 8px; }
 .sbt-icon:hover { color: #fff; }
 #sbt-drop { margin: 20px 0; padding: 30px 12px; border: 1px dashed #555; border-radius: 10px; text-align: center; }
+#sbt-browse { position: relative; display: inline-block; }
+#sbt-choose { list-style: none; }
+#sbt-choose::-webkit-details-marker { display: none; }
+#sbt-browse-options { position: absolute; top: calc(100% + 6px); left: 50%; transform: translateX(-50%); min-width: 130px; padding: 4px; border: 1px solid #444; border-radius: 8px; background: #202020; box-shadow: 0 6px 18px #0006; z-index: 1; }
+#sbt-browse-options button { display: block; width: 100%; padding: 9px 12px; border: 0; border-radius: 4px; background: transparent; color: #faf9f6; font: 13px system-ui, sans-serif; text-align: left; cursor: pointer; }
+#sbt-browse-options button:hover, #sbt-browse-options button:focus-visible { background: #303b4a; outline: none; }
 #sbt-drop p { margin: 10px 0 0; color: #999; font-size: 13px; }
 #sbt-drop.sbt-dragover { border-color: #3780e9; background: #202a38; }
 #sbt-dialog.sbt-has-files #sbt-drop { padding: 14px; }
@@ -35,7 +41,7 @@
     upload.textContent = '↑ Upload'; upload.setAttribute('aria-label', 'Upload documents');
     const dialog = document.createElement('dialog');
     dialog.id = 'sbt-dialog'; dialog.setAttribute('aria-labelledby', 'sbt-upload-title');
-    dialog.innerHTML = '<header><h2 id="sbt-upload-title">Upload</h2><button class="sbt-icon" type="button" aria-label="Close upload dialog">×</button></header><div id="sbt-drop"><button id="sbt-choose" class="sbt-button" type="button">Browse</button> <button id="sbt-choose-folder" class="sbt-button" type="button">Choose folder</button><p>or drop files or folders here</p></div><input id="sbt-file-input" type="file" multiple hidden><input id="sbt-folder-input" type="file" webkitdirectory multiple hidden><p id="sbt-discovery-error" role="alert" hidden></p><ul id="sbt-files" aria-label="Upload progress"></ul><footer><label><input id="sbt-insert-paths" type="checkbox" checked> Insert paths</label><button id="sbt-retry-upload" type="button" hidden>Retry failed</button></footer><p id="sbt-path-error" role="alert" hidden></p><button id="sbt-retry-paths" type="button" hidden>Insert paths</button><p id="sbt-upload-result" class="sbt-sr-only" role="status"></p>';
+    dialog.innerHTML = '<header><h2 id="sbt-upload-title">Upload</h2><button class="sbt-icon" type="button" aria-label="Close upload dialog">×</button></header><div id="sbt-drop"><details id="sbt-browse"><summary id="sbt-choose" class="sbt-button">Browse</summary><div id="sbt-browse-options"><button id="sbt-choose-files" type="button">Files</button><button id="sbt-choose-folder" type="button">Folder</button></div></details><p>or drop files or folders here</p></div><input id="sbt-file-input" type="file" multiple hidden><input id="sbt-folder-input" type="file" webkitdirectory multiple hidden><p id="sbt-discovery-error" role="alert" hidden></p><ul id="sbt-files" aria-label="Upload progress"></ul><footer><label><input id="sbt-insert-paths" type="checkbox" checked> Insert paths</label><button id="sbt-retry-upload" type="button" hidden>Retry failed</button></footer><p id="sbt-path-error" role="alert" hidden></p><button id="sbt-retry-paths" type="button" hidden>Insert paths</button><p id="sbt-upload-result" class="sbt-sr-only" role="status"></p>';
     document.body.append(upload, dialog);
     const result = dialog.querySelector('#sbt-upload-result'), list = dialog.querySelector('#sbt-files');
     const input = dialog.querySelector('#sbt-file-input'), retry = dialog.querySelector('#sbt-retry-upload');
@@ -155,8 +161,19 @@
       dialog.showModal(); update(); schedule();
     }
     upload.addEventListener('click', openDialog);
-    dialog.querySelector('#sbt-choose').addEventListener('click', () => input.click());
-    dialog.querySelector('#sbt-choose-folder').addEventListener('click', () => folderInput.click());
+    const browse = dialog.querySelector('#sbt-browse');
+    const browseButton = dialog.querySelector('#sbt-choose');
+    for (const [id, picker] of [['#sbt-choose-files', input], ['#sbt-choose-folder', folderInput]]) {
+      dialog.querySelector(id).addEventListener('click', () => { browse.open = false; picker.click(); });
+    }
+    document.addEventListener('pointerdown', event => {
+      if (!browse.contains(event.target)) browse.open = false;
+    }, true);
+    dialog.addEventListener('keydown', event => {
+      if (event.key === 'Escape' && browse.open) {
+        event.preventDefault(); event.stopPropagation(); browse.open = false; browseButton.focus();
+      }
+    });
     function addFiles(files) {
       for (const entry of files) {
         const {file, destination, group} = entry.file ? entry : {file:entry};
@@ -210,7 +227,7 @@
         for (const [index, entry] of roots.entries()) {
           if (entry) await walk(entry, entry.name, null);
           else if (fallback[index]) entries.push(fallback[index]);
-          else throw new Error('Could not read this folder. Try Choose folder.');
+          else throw new Error('Could not read this folder. Try Browse → Folder.');
         }
         if (generation === discoveryGeneration && dialog.open) addFiles(entries);
       } catch (error) {
@@ -253,7 +270,7 @@
     retryPaths.addEventListener('click', () => { insertionError = ''; update(); });
     dialog.querySelector('[aria-label="Close upload dialog"]').addEventListener('click', () => dialog.close());
     dialog.addEventListener('close', () => {
-      discoveryGeneration++; discoveryError.hidden = true;
+      discoveryGeneration++; discoveryError.hidden = true; browse.open = false;
       for (const item of items) if (!['complete', 'failed', 'canceled'].includes(item.state)) cancel(item);
       window.term?.focus();
     });
