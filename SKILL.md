@@ -115,10 +115,8 @@ notification is needed. Never announce an unverified URL or send credentials.
   **Ctrl+R** searches history. New windows/splits inherit this configuration.
   Existing local shells must flush history before other shells can import it;
   a new terminal is not required. Details: [history and completion](docs/usage.md#suggestions-and-completion).
-- **↑ Upload → Browse → Files / Folder**, or drop either
-  onto the terminal or minimal upload dialog. Keep a single Browse button with
-  file/folder choices underneath; do not add a separate folder button.
-  Preserve relative paths in one
+- **↑ Upload → Browse** for files, **Choose folder** for folders, or drop either
+  onto the terminal or minimal upload dialog. Preserve relative paths in one
   unique destination per selected folder. Read all batches when walking dropped
   directories and preserve empty directories; native folder pickers omit them.
   Insert the folder path once, only after every member succeeds; keep incomplete
