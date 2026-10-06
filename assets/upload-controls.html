@@ -35,12 +35,14 @@
     upload.textContent = '↑ Upload'; upload.setAttribute('aria-label', 'Upload documents');
     const dialog = document.createElement('dialog');
     dialog.id = 'sbt-dialog'; dialog.setAttribute('aria-labelledby', 'sbt-upload-title');
-    dialog.innerHTML = '<header><h2 id="sbt-upload-title">Upload</h2><button class="sbt-icon" type="button" aria-label="Close upload dialog">×</button></header><div id="sbt-drop"><button id="sbt-choose" class="sbt-button" type="button">Browse</button><p>or drop files here</p></div><input id="sbt-file-input" type="file" multiple hidden><ul id="sbt-files" aria-label="Upload progress"></ul><footer><label><input id="sbt-insert-paths" type="checkbox" checked> Insert paths</label><button id="sbt-retry-upload" type="button" hidden>Retry failed</button></footer><p id="sbt-path-error" role="alert" hidden></p><button id="sbt-retry-paths" type="button" hidden>Insert paths</button><p id="sbt-upload-result" class="sbt-sr-only" role="status"></p>';
+    dialog.innerHTML = '<header><h2 id="sbt-upload-title">Upload</h2><button class="sbt-icon" type="button" aria-label="Close upload dialog">×</button></header><div id="sbt-drop"><button id="sbt-choose" class="sbt-button" type="button">Browse</button> <button id="sbt-choose-folder" class="sbt-button" type="button">Choose folder</button><p>or drop files or folders here</p></div><input id="sbt-file-input" type="file" multiple hidden><input id="sbt-folder-input" type="file" webkitdirectory multiple hidden><p id="sbt-discovery-error" role="alert" hidden></p><ul id="sbt-files" aria-label="Upload progress"></ul><footer><label><input id="sbt-insert-paths" type="checkbox" checked> Insert paths</label><button id="sbt-retry-upload" type="button" hidden>Retry failed</button></footer><p id="sbt-path-error" role="alert" hidden></p><button id="sbt-retry-paths" type="button" hidden>Insert paths</button><p id="sbt-upload-result" class="sbt-sr-only" role="status"></p>';
     document.body.append(upload, dialog);
     const result = dialog.querySelector('#sbt-upload-result'), list = dialog.querySelector('#sbt-files');
     const input = dialog.querySelector('#sbt-file-input'), retry = dialog.querySelector('#sbt-retry-upload');
     const insert = dialog.querySelector('#sbt-insert-paths'), drop = dialog.querySelector('#sbt-drop');
     const items = [];
+    const folderInput = dialog.querySelector('#sbt-folder-input'), discoveryError = dialog.querySelector('#sbt-discovery-error');
+    let discoveryGeneration = 0, collecting = 0;
     let paintPending = false, lastCompletedCount = 0, finishing = false, insertionError = '';
     const pathError = dialog.querySelector('#sbt-path-error'), retryPaths = dialog.querySelector('#sbt-retry-paths');
     const bytes = number => number < 1024 ? number + ' B' : number < 1024 ** 2 ? (number / 1024).toFixed(1) + ' KB' : (number / 1024 ** 2).toFixed(1) + ' MB';
@@ -72,14 +74,15 @@
       pathError.hidden = retryPaths.hidden = !insertionError;
       pathError.textContent = insertionError;
       const settled = items.every(item => ['complete', 'failed', 'canceled'].includes(item.state));
-      if (settled && complete.length > lastCompletedCount && dialog.open && !finishing && !insertionError) {
+      if (!collecting && settled && complete.length > lastCompletedCount && dialog.open && !finishing && !insertionError) {
         finish(complete);
       }
     }
     async function finish(complete) {
       finishing = true;
       try {
-        const pending = complete.filter(item => !item.inserted);
+        const ready = complete.filter(item => !item.group || items.filter(other => other.group === item.group).every(other => other.state === 'complete'));
+        const pending = ready.filter(item => !item.inserted);
         if (insert.checked && pending.length) {
           // Await tmux leaving copy mode; otherwise it can swallow pasted paths.
           await window.sharedTerminalPrepareInput();
@@ -87,11 +90,13 @@
           if (!window.term || window.term.options.disableStdin) {
             throw new Error('Terminal is reconnecting. Retry inserting paths.');
           }
-          const quoted = pending.map(item => "'" + item.path.replaceAll("'", "'\\''") + "'").join(' ');
+          const paths = [...new Set(pending.map(item => item.group
+            ? item.path.slice(0, -item.destination.relative.length) + item.group.name : item.path))];
+          const quoted = paths.map(path => "'" + path.replaceAll("'", "'\\''") + "'").join(' ');
           window.term.paste(' ' + quoted + ' ');
           pending.forEach(item => { item.inserted = true; });
         }
-        complete.forEach(item => { item.handled = true; });
+        ready.forEach(item => { item.handled = true; });
         lastCompletedCount = complete.length;
         if (complete.length === items.length) dialog.close();
       } catch (error) {
@@ -120,7 +125,7 @@
         for (let attempt = 0; ; attempt++) {
           try {
             item.path = await window.sharedTerminalUpload(item.file, {
-              signal: controller.signal,
+              signal: controller.signal, destination: item.destination,
               onState: state => { item.state = state; schedulePaint(); },
               onProgress: received => { item.received = received; schedulePaint(); }
             });
@@ -151,22 +156,69 @@
     }
     upload.addEventListener('click', openDialog);
     dialog.querySelector('#sbt-choose').addEventListener('click', () => input.click());
+    dialog.querySelector('#sbt-choose-folder').addEventListener('click', () => folderInput.click());
     function addFiles(files) {
-      for (const file of files) {
+      for (const entry of files) {
+        const {file, destination, group} = entry.file ? entry : {file:entry};
+        const label = destination?.relative || file.name;
         const row = document.createElement('li'); row.className = 'sbt-file';
-        const name = document.createElement('strong'); name.textContent = file.name; name.title = file.name;
+        const name = document.createElement('strong'); name.textContent = label; name.title = label;
         const progress = document.createElement('progress'); progress.max = 1; progress.value = 0; progress.setAttribute('aria-label', file.name + ' upload progress');
         const status = document.createElement('span'), button = document.createElement('button'), size = document.createElement('span'), errorText = document.createElement('span');
         status.className = 'sbt-state'; size.className = 'sbt-size'; size.textContent = bytes(file.size);
         errorText.className = 'sbt-error'; errorText.hidden = true;
         button.className = 'sbt-icon'; button.type = 'button';
-        const item = {file, row, progress, status, button, errorText, state: 'queued', received: 0};
+        const item = {file, destination, group, row, progress, status, button, errorText, state: 'queued', received: 0};
         button.addEventListener('click', () => ['failed', 'canceled'].includes(item.state) ? queue(item) : cancel(item));
         row.append(name, size, progress, button, status, errorText); list.append(row); items.push(item);
       }
       update(); schedule();
     }
     input.addEventListener('change', () => { addFiles(input.files); input.value = ''; });
+    function folderEntry(file, relative, group, directory = false) {
+      return {file, group, destination:{group:group.id, relative, directory}};
+    }
+    folderInput.addEventListener('change', () => {
+      const groups = new Map(), entries = [];
+      for (const file of folderInput.files) {
+        const relative = file.webkitRelativePath, name = relative.split('/')[0];
+        if (!groups.has(name)) groups.set(name, {name, id:crypto.randomUUID().replaceAll('-', '')});
+        entries.push(folderEntry(file, relative, groups.get(name)));
+      }
+      addFiles(entries); folderInput.value = '';
+    });
+    async function readDrop(roots, fallback, generation) {
+      collecting++; discoveryError.hidden = true;
+      const entries = [];
+      async function walk(entry, relative, group) {
+        if (generation !== discoveryGeneration) throw new DOMException('Canceled', 'AbortError');
+        if (entry.isFile) {
+          const file = await new Promise((resolve, reject) => entry.file(resolve, reject));
+          entries.push(group ? folderEntry(file, relative, group) : file);
+        } else if (entry.isDirectory) {
+          group ||= {name:entry.name, id:crypto.randomUUID().replaceAll('-', '')};
+          entries.push(folderEntry(new File([], entry.name), relative, group, true));
+          const reader = entry.createReader();
+          for (;;) {
+            const batch = await new Promise((resolve, reject) => reader.readEntries(resolve, reject));
+            if (!batch.length) break;
+            for (const child of batch) await walk(child, relative+'/'+child.name, group);
+          }
+        } else throw new Error('Could not read this folder.');
+      }
+      try {
+        for (const [index, entry] of roots.entries()) {
+          if (entry) await walk(entry, entry.name, null);
+          else if (fallback[index]) entries.push(fallback[index]);
+          else throw new Error('Could not read this folder. Try Choose folder.');
+        }
+        if (generation === discoveryGeneration && dialog.open) addFiles(entries);
+      } catch (error) {
+        if (generation === discoveryGeneration && error.name !== 'AbortError') {
+          discoveryError.textContent = error.message || 'Could not read this folder.'; discoveryError.hidden = false;
+        }
+      } finally { collecting--; update(); }
+    }
     // Capture file drops before ttyd's target handler can send Ctrl+C and `trz`
     // into the foreground program. All files use the separate upload connection.
     const hasFiles = event => event.dataTransfer &&
@@ -181,8 +233,13 @@
       if (!hasFiles(event)) return;
       event.preventDefault(); event.stopImmediatePropagation();
       drop.classList.remove('sbt-dragover');
-      if (!event.dataTransfer.files.length) return;
-      openDialog(); addFiles(event.dataTransfer.files);
+      // Read handles synchronously while the browser still grants access to the drop.
+      const files = [...event.dataTransfer.files];
+      const fileItems = [...event.dataTransfer.items].filter(item => item.kind === 'file');
+      const roots = fileItems.map(item => item.webkitGetAsEntry?.() || null);
+      openDialog();
+      if (roots.some(Boolean)) readDrop(roots, fileItems.map(item => item.getAsFile()), discoveryGeneration);
+      else addFiles(files);
     }, true);
     window.addEventListener('dragend', () => drop.classList.remove('sbt-dragover'));
     drop.addEventListener('dragleave', () => drop.classList.remove('sbt-dragover'));
@@ -196,6 +253,7 @@
     retryPaths.addEventListener('click', () => { insertionError = ''; update(); });
     dialog.querySelector('[aria-label="Close upload dialog"]').addEventListener('click', () => dialog.close());
     dialog.addEventListener('close', () => {
+      discoveryGeneration++; discoveryError.hidden = true;
       for (const item of items) if (!['complete', 'failed', 'canceled'].includes(item.state)) cancel(item);
       window.term?.focus();
     });

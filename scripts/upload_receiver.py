@@ -34,13 +34,13 @@ def main():
 
 
 def receive_file(source, sink, parent, heartbeat=lambda: None):
-    emit(sink, {'type': 'ready', 'version': 1, 'resume': True})
+    emit(sink, {'type': 'ready', 'version': 1, 'resume': True, 'folders': True})
     header = source.readline(4097)
     if len(header) > 4096 or not header.endswith(b'\n'):
         raise ValueError('Invalid upload header')
     request = json.loads(header)
     name, size = validate_request(request)
-    if request['version'] == 2:
+    if request['version'] in (2, 3):
         return receive_resumable(source, sink, parent, request, heartbeat)
     parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     destination = Path(tempfile.mkdtemp(prefix='upload-', dir=parent))
@@ -96,15 +96,23 @@ def receive_resumable(source, sink, parent, request, heartbeat):
             return
         metadata = state / 'metadata.json'
         expected = {'name': name, 'size': size}
+        if request['version'] == 3:
+            expected.update(group=request['group'], relative=request['relative'], directory=request['directory'])
         if metadata.exists():
             if json.loads(metadata.read_text()) != expected:
                 raise ValueError('Upload details do not match the saved transfer')
         else:
             metadata.write_text(json.dumps(expected))
         os.utime(state, None)
-        destination = parent / ('upload-' + identifier)
-        destination.mkdir(exist_ok=True, mode=0o700)
-        target = destination / name
+        destination = parent / ('upload-' + (request['group'] if request['version'] == 3 else identifier))
+        target = folder_target(destination, request['relative']) if request['version'] == 3 else folder_target(destination, name)
+        if request['version'] == 3 and request['directory']:
+            target.mkdir(exist_ok=True, mode=0o700)
+            if target.is_symlink() or not target.is_dir():
+                raise ValueError('Upload destination is not a directory')
+            emit(sink, {'type': 'accepted', 'size': 0, 'offset': 0})
+            confirm_saved(source, sink, target, 0, identifier)
+            return
         partial = state / 'data'
         # A lost final acknowledgement must return the same completed path.
         if target.exists():
@@ -166,7 +174,7 @@ def expire_transfers(transfers):
 
 
 def validate_request(request):
-    if not isinstance(request, dict) or request.get('version') not in (1, 2):
+    if not isinstance(request, dict) or request.get('version') not in (1, 2, 3):
         raise ValueError('Unsupported upload protocol')
     name, size = request.get('name'), request.get('size')
     if (not isinstance(name, str) or not name or name in ('.', '..') or
@@ -175,7 +183,37 @@ def validate_request(request):
         raise ValueError('Upload name must be a filename without path separators or control characters')
     if type(size) is not int or not 0 <= size <= 2**53 - 1:
         raise ValueError('Invalid upload size')
+    if request['version'] == 3:
+        group, relative, directory = request.get('group'), request.get('relative'), request.get('directory')
+        if not isinstance(group, str) or not re.fullmatch(r'[a-f0-9]{32}', group):
+            raise ValueError('Invalid folder upload ID')
+        if (not isinstance(relative, str) or not relative or
+                any(part in ('', '.', '..') for part in relative.split('/')) or
+                '\\' in relative or any(ord(char) < 32 or ord(char) == 127 for char in relative) or
+                relative.split('/')[-1] != name):
+            raise ValueError('Invalid relative upload path')
+        if type(directory) is not bool or (directory and size != 0):
+            raise ValueError('Invalid directory upload')
     return name, size
+
+
+def folder_target(destination, relative):
+    # The group ID isolates each selected folder; never follow an existing link
+    # while building its nested directories or overwrite an existing file.
+    destination.mkdir(exist_ok=True, mode=0o700)
+    if destination.is_symlink() or not destination.is_dir():
+        raise ValueError('Invalid upload directory')
+    current = destination
+    parts = relative.split('/')
+    for part in parts[:-1]:
+        current = current / part
+        current.mkdir(exist_ok=True, mode=0o700)
+        if current.is_symlink() or not current.is_dir():
+            raise ValueError('Invalid upload directory')
+    target = current / parts[-1]
+    if target.is_symlink():
+        raise ValueError('Invalid upload destination')
+    return target
 
 
 def emit(sink, message):

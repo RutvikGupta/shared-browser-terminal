@@ -20,7 +20,7 @@ class UploadReceiverTests(unittest.TestCase):
             parent = Path(folder)
             data = bytes(range(256)) * 700
             events = self.transfer(parent, "résumé ' report.bin", data)
-            self.assertEqual(events[0], {'type': 'ready', 'version': 1, 'resume': True})
+            self.assertEqual(events[0], {'type': 'ready', 'version': 1, 'resume': True, 'folders': True})
             self.assertEqual([event['bytes'] for event in events if event['type'] == 'progress'],
                              [CHUNK_SIZE, 2 * CHUNK_SIZE, len(data)])
             saved = events[-1]
@@ -122,6 +122,63 @@ class UploadReceiverTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             with self.assertRaises(ValueError):
                 receive_file(io.BytesIO(b'x' * 4097), io.BytesIO(), Path(folder))
+
+
+class FolderUploadTests(unittest.TestCase):
+    def send(self, parent, relative, data=b'', identifier='a'*32, size=None, group='b'*32, directory=False):
+        request = {'version':3, 'id':identifier, 'group':group, 'name':relative.split('/')[-1],
+                   'relative':relative, 'directory':directory, 'size':len(data) if size is None else size}
+        source = io.BytesIO(json.dumps(request).encode()+b'\n'+data+json.dumps({'complete':identifier}).encode()+b'\n')
+        sink = io.BytesIO()
+        receive_file(source, sink, parent)
+        return [json.loads(line) for line in sink.getvalue().splitlines()]
+
+    def test_nested_files_duplicates_empty_directories_and_separate_groups(self):
+        with tempfile.TemporaryDirectory() as folder:
+            parent=Path(folder)
+            a=Path(self.send(parent, "résumé ' folder/a/report.txt", b'first')[-1]['path'])
+            b=Path(self.send(parent, "résumé ' folder/b/report.txt", b'second', identifier='c'*32)[-1]['path'])
+            empty=Path(self.send(parent, "résumé ' folder/empty", identifier='d'*32, directory=True)[-1]['path'])
+            other=Path(self.send(parent, "résumé ' folder/a/report.txt", b'other', identifier='e'*32, group='f'*32)[-1]['path'])
+            self.assertEqual(a.read_bytes(),b'first')
+            self.assertEqual(b.read_bytes(),b'second')
+            self.assertEqual(a.parent.parent,b.parent.parent)
+            self.assertEqual(list(empty.iterdir()),[])
+            self.assertNotEqual(a,other)
+            self.assertEqual(other.read_bytes(),b'other')
+            replay=self.send(parent,"résumé ' folder/a/report.txt",size=5)
+            self.assertEqual(replay[1]['offset'],5)
+            self.assertEqual(replay[-1]['path'],str(a))
+
+    def test_folder_resume_preserves_prefix_and_metadata(self):
+        with tempfile.TemporaryDirectory() as folder:
+            parent=Path(folder)
+            request={'version':3,'id':'a'*32,'group':'b'*32,'name':'file','relative':'folder/sub/file','directory':False,'size':10}
+            with self.assertRaises(EOFError):
+                receive_file(io.BytesIO(json.dumps(request).encode()+b'\npart'),io.BytesIO(),parent)
+            with self.assertRaises(ValueError):
+                self.send(parent,'folder/changed/file',b'',size=10)
+            result=self.send(parent,'folder/sub/file',b'suffix',size=10)
+            self.assertEqual(result[1]['offset'],4)
+            self.assertEqual(Path(result[-1]['path']).read_bytes(),b'partsuffix')
+
+    def test_invalid_paths_and_symlinks_cannot_escape_folder(self):
+        with tempfile.TemporaryDirectory() as folder, tempfile.TemporaryDirectory() as outside:
+            parent=Path(folder)
+            for relative in ('/absolute/file','../file','folder/../file','folder//file','folder/./file','folder/evil\\file','folder/line\nfile'):
+                with self.subTest(relative=relative), self.assertRaises(ValueError): self.send(parent,relative)
+            self.assertEqual(list(parent.iterdir()),[])
+            destination=parent/('upload-'+'b'*32)
+            destination.mkdir(); (destination/'linked').symlink_to(outside,target_is_directory=True)
+            with self.assertRaises(ValueError): self.send(parent,'linked/file')
+            self.assertEqual(list(Path(outside).iterdir()),[])
+
+    def test_existing_file_is_never_overwritten_by_another_transfer(self):
+        with tempfile.TemporaryDirectory() as folder:
+            parent=Path(folder)
+            saved=Path(self.send(parent,'folder/file',b'original')[-1]['path'])
+            with self.assertRaises(ValueError): self.send(parent,'folder/file',b'new',identifier='c'*32)
+            self.assertEqual(saved.read_bytes(),b'original')
 
 
 if __name__ == '__main__':

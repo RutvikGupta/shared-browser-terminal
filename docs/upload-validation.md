@@ -72,3 +72,24 @@ For timing without deliberately dropped connections, set `UPLOAD_TEST_FAULTS=0`.
 `UPLOAD_TEST_LOCAL=1` selects loopback. `UPLOAD_TEST_SIZES` accepts a JSON array of
 file sizes in MiB; all files start together by default. Receiver restart tests
 require an isolated session whose name starts with `sbt-resume-validation`.
+
+
+## Folder uploads (October 6, 2026)
+
+`smoke_test_folders.cjs` runs a native directory picker and recursive directory
+entry drops against an isolated authenticated terminal. `FOLDER_TEST_PUBLIC=1`
+runs the same checks through a temporary Cloudflare Quick Tunnel and stops it
+on completion. Only generated test files are uploaded and then removed.
+
+Verified locally and through public HTTPS/WSS: nested duplicate filenames,
+Unicode and quotes, empty files, dropped empty directories, multiple directory
+reader batches, exact saved bytes, lost progress/completion acknowledgements,
+retry after a failed sibling, one completed folder path without Enter or draft
+clearing, dialog auto-close, and cancellation during directory discovery.
+The existing file-upload browser suite also passed. Receiver tests cover folder
+resume metadata, path traversal, symlinks, and refusal to overwrite another file.
+
+```bash
+PLAYWRIGHT_MODULE=/path/to/playwright node scripts/smoke_test_folders.cjs
+FOLDER_TEST_PUBLIC=1 PLAYWRIGHT_MODULE=/path/to/playwright node scripts/smoke_test_folders.cjs
+```

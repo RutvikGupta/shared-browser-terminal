@@ -281,7 +281,8 @@ inside a Codex/Claude chat composer.
 
 ## Upload documents
 
-Click **↑ Upload → Browse**, or drag files into the drop area. Use ⌘-click on Mac,
+Click **↑ Upload → Browse** for files or **Choose folder** for a folder.
+Drag files or folders onto the terminal or into the drop area. Use ⌘-click on Mac,
 Ctrl-click on Windows/Linux, or Shift-click for a range in the file picker. All files appear in one persistent list, with queued,
 connecting, uploading, uploaded, canceled, or failed status. Each compact row shows its
 file name, size, progress bar, and cancel/retry action. Completed rows stay visible
@@ -296,7 +297,12 @@ inside your running command. The terminal stays available after the upload.
 Each file gets a dedicated Web Worker and a separate authenticated WebSocket on
 the existing terminal URL. File reads, transfer logic, and retries run off the UI
 thread; progress updates are batched to keep the terminal responsive. The
-receiver saves into its own unique folder under `~/Downloads/terminal-uploads/`.
+receiver saves under `~/Downloads/terminal-uploads/`. Standalone files use separate
+unique destinations; files from a selected folder share a unique destination and
+retain their relative paths. Choosing the same folder again creates a new copy.
+Dropped folders include empty directories; browser folder pickers omit them.
+A folder path is inserted only after every file in that folder succeeds. Failed
+files remain available for retry without retransmitting completed siblings.
 This can reduce per-file round-trip waiting, but all connections share bandwidth
 and disk capacity; no fixed speed improvement is promised.
 

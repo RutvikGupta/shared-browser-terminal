@@ -142,7 +142,11 @@ python3 scripts/browser_terminal.py stop
 
 ## Upload documents
 
-Refresh the terminal page after upgrading. Click **↑ Upload → Browse**, or drop files into the dialog.
+Refresh the terminal page after upgrading. Click **↑ Upload → Browse** for files
+or **Choose folder** for a folder. You can also drop files or folders onto the terminal.
+Subfolders and duplicate filenames in separate subfolders are preserved. Each
+completed folder inserts one folder path, after all its files finish. Drag a folder
+to include empty subfolders; browser folder pickers only provide files.
 Each file keeps a compact row with its name, size, progress, and cancel/retry
 action. Reopening the dialog clears finished uploads. Failed or canceled files
 and saved paths awaiting insertion stay available for retry.
@@ -161,8 +165,9 @@ Interrupted uploads retry automatically from the saved position. You can also
 cancel or retry individual files without restarting successful uploads or the
 main terminal. Five consecutive failures without saved progress stop automatic
 retries; progressing files keep retrying. Closing cancels unfinished uploads;
-reopen and retry them without selecting the files again. Each file uses its own unique folder under
-`~/Downloads/terminal-uploads/`, avoiding filename collisions.
+reopen and retry them without selecting the files again. Standalone files each use a unique destination under
+`~/Downloads/terminal-uploads/`. A selected folder shares one unique destination
+with its original directory structure, avoiding collisions with earlier uploads.
 
 After the transfers finish, successfully saved paths are inserted into terminal
 input once, without clearing existing text or sending Enter. History mode is

@@ -115,7 +115,13 @@ notification is needed. Never announce an unverified URL or send credentials.
   **Ctrl+R** searches history. New windows/splits inherit this configuration.
   Existing local shells must flush history before other shells can import it;
   a new terminal is not required. Details: [history and completion](docs/usage.md#suggestions-and-completion).
-- **↑ Upload → Browse**, or drop files into the minimal upload dialog.
+- **↑ Upload → Browse** for files, **Choose folder** for folders, or drop either
+  onto the terminal or minimal upload dialog. Preserve relative paths in one
+  unique destination per selected folder. Read all batches when walking dropped
+  directories and preserve empty directories; native folder pickers omit them.
+  Insert the folder path once, only after every member succeeds; keep incomplete
+  folders available for retry. Validate relative paths and reject traversal,
+  symlinks, and overwrites. Keep per-file resume IDs separate from folder IDs.
   Dropping files anywhere on the terminal opens the same separate upload flow.
   Capture file drag/drop events before ttyd/trzsz: its built-in drop handler sends
   Ctrl+C and types `trz` into the foreground program. Never let file drops reach
@@ -135,7 +141,8 @@ notification is needed. Never announce an unverified URL or send credentials.
   offset, with bounded backoff. Keep the same transfer ID for manual retries.
   Validate changes with repeated random large-file transfers through a real
   tunnel, forced disconnects, receiver restarts, and matching file hashes.
-  Each file goes under its own `~/Downloads/terminal-uploads/upload-…/` folder
+  Standalone files and selected folder trees go under unique
+  `~/Downloads/terminal-uploads/upload-…/` destinations
   through a separate authenticated connection on the same URL. Retry/cancel
   affects individual files; completed files are retained, not retransmitted.
   The dialog closes automatically when all files succeed; failures stay open.
