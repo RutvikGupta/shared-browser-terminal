@@ -122,6 +122,10 @@ notification is needed. Never announce an unverified URL or send credentials.
   Insert the folder path once, only after every member succeeds; keep incomplete
   folders available for retry. Validate relative paths and reject traversal,
   symlinks, and overwrites. Keep per-file resume IDs separate from folder IDs.
+  Pasting clipboard images into the terminal or upload dialog uses the same
+  upload flow and inserts saved paths without Enter. Handle explicit paste events
+  before xterm, suppress image text/HTML fallbacks, and preserve text-only paste.
+  Never poll or read the clipboard in the background.
   Dropping files anywhere on the terminal opens the same separate upload flow.
   Capture file drag/drop events before ttyd/trzsz: its built-in drop handler sends
   Ctrl+C and types `trz` into the foreground program. Never let file drops reach

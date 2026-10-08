@@ -37,7 +37,7 @@ terminal.restart_ttyd(state,config)
     const login=fs.readFileSync(path.join(state,'login.txt'),'utf8').trim();
     const split=login.indexOf(':');
     browser=await chromium.launch({headless:true});
-    const context=await browser.newContext({httpCredentials:{username:login.slice(0,split),password:login.slice(split+1)},viewport:{width:1200,height:800}});
+    const context=await browser.newContext({httpCredentials:{username:login.slice(0,split),password:login.slice(split+1)},viewport:{width:1200,height:800},permissions:['clipboard-read','clipboard-write']});
     const files=[
       {name:"report ' résumé $(echo test).bin",buffer:Buffer.alloc(large ? 150*1024*1024 : 800000,0xff),mimeType:'application/octet-stream'},
       {name:'second report.bin',buffer:large ? Buffer.alloc(140*1024*1024,0x5a) : Buffer.from(Array.from({length:600000},(_,i)=>i%256)),mimeType:'application/octet-stream'},
@@ -123,6 +123,52 @@ terminal.restart_ttyd(state,config)
     assert.equal(fs.readFileSync(rawInput,'utf8'),droppedExpected+' still alive','terminal accepts further input without a reload');
     fs.unlinkSync(rawInput);
     console.log('PASS: direct terminal drop uploads multiple files without interrupting the program; input remains responsive without reload.');
+    // Use the real browser clipboard and paste shortcut, not only a synthetic event.
+    await page.evaluate(async()=>{
+      const upload=window.sharedTerminalUpload;
+      window.sharedTerminalUpload=async(file,options)=>{window.pastedPhotoBytes=[...new Uint8Array(await file.arrayBuffer())];return upload(file,options);};
+      const canvas=document.createElement('canvas');canvas.width=12;canvas.height=9;
+      const ctx=canvas.getContext('2d');ctx.fillStyle='#37a8cd';ctx.fillRect(0,0,12,9);
+      const blob=await new Promise(resolve=>canvas.toBlob(resolve,'image/png'));
+      await navigator.clipboard.write([new ClipboardItem({'image/png':blob})]);
+      window.term.focus();
+    });
+    await page.keyboard.press('Meta+v');
+    await page.waitForFunction(()=>window.dropPaths.length===3,null,{timeout:15000});
+    await page.locator('#sbt-dialog').waitFor({state:'hidden'});
+    const photoPath=await page.evaluate(()=>window.dropPaths[2]);receivedDirs.add(path.dirname(photoPath));
+    const photoBytes=fs.readFileSync(photoPath);
+    assert.deepEqual(photoBytes,Buffer.from(await page.evaluate(()=>window.pastedPhotoBytes)),'upload preserves the image bytes delivered by the clipboard');
+    const pixels=await page.evaluate(async bytes=>{
+      const bitmap=await createImageBitmap(new Blob([new Uint8Array(bytes)],{type:'image/png'}));
+      const canvas=document.createElement('canvas');canvas.width=bitmap.width;canvas.height=bitmap.height;
+      const ctx=canvas.getContext('2d');ctx.drawImage(bitmap,0,0);bitmap.close();
+      return {width:canvas.width,height:canvas.height,rgba:[...ctx.getImageData(0,0,1,1).data]};
+    },[...photoBytes]);
+    assert.deepEqual(pixels,{width:12,height:9,rgba:[55,168,205,255]},'saved photo preserves the copied image pixels');
+    const photoInput=" '"+photoPath.replaceAll("'","'\\''")+"' ";
+    await page.waitForTimeout(150);
+    assert.equal(fs.readFileSync(rawInput,'utf8'),photoInput,'photo paste sends only saved path without Enter or interrupt');
+    await page.evaluate(async()=>{await navigator.clipboard.writeText('normal pasted text');window.term.focus();});
+    await page.keyboard.press('Meta+v');await page.waitForTimeout(200);
+    assert.equal(fs.readFileSync(rawInput,'utf8'),photoInput+'normal pasted text','text paste remains normal terminal input');
+    assert.equal(await page.evaluate(()=>window.dropPaths.length),3,'text paste does not upload');
+    const mixedPhotos=await page.evaluate(()=>{
+      const dt=new DataTransfer();dt.items.add(new File(['synthetic jpeg bytes'],'photo.jpg',{type:'image/jpeg'}));
+      dt.items.add(new File(['synthetic webp bytes'],'photo.webp',{type:'image/webp'}));dt.setData('text/plain','do not type this fallback');
+      const event=new ClipboardEvent('paste',{clipboardData:dt,bubbles:true,cancelable:true});
+      window.term.element.querySelector('textarea').dispatchEvent(event);return event.defaultPrevented;
+    });
+    assert(mixedPhotos,'image paste is intercepted before terminal paste handlers');
+    await page.waitForFunction(()=>window.dropPaths.length===5,null,{timeout:15000});
+    await page.locator('#sbt-dialog').waitFor({state:'hidden'});
+    const mixedPaths=await page.evaluate(()=>window.dropPaths.slice(3));mixedPaths.forEach(p=>receivedDirs.add(path.dirname(p)));
+    assert.equal(fs.readFileSync(mixedPaths.find(p=>p.endsWith('.jpg')),'utf8'),'synthetic jpeg bytes');
+    assert.equal(fs.readFileSync(mixedPaths.find(p=>p.endsWith('.webp')),'utf8'),'synthetic webp bytes');
+    assert(!fs.readFileSync(rawInput,'utf8').includes('do not type this fallback'),'image text fallback is never sent to the program');
+    assert.equal(execFileSync('tmux',['display-message','-p','-t','=selection-test:','#{pane_pid}'],{env,encoding:'utf8'}).trim(),paneBefore,'foreground process survives photo paste');
+    fs.unlinkSync(rawInput);
+    console.log('PASS: real clipboard PNG paste uploads exact bytes and inserts its path; text paste is preserved; multiple images suppress text fallback without interrupting the command.');
     await page.evaluate(()=>{
       window.term.paste('existing draft');
       window.savedPaths=[];

@@ -142,6 +142,10 @@ python3 scripts/browser_terminal.py stop
 
 ## Upload documents
 
+Paste a copied photo or screenshot into the terminal with **⌘V** on Mac
+(or your normal paste shortcut). It uploads and inserts the saved image path
+without Enter or clearing your draft. Text-only clipboard content pastes normally.
+
 Refresh the terminal page after upgrading. Click **↑ Upload → Browse** for files
 or **Choose folder** for a folder. You can also drop files or folders onto the terminal.
 Subfolders and duplicate filenames in separate subfolders are preserved. Each

@@ -219,6 +219,22 @@
         }
       } finally { collecting--; update(); }
     }
+    // Read images only from an explicit paste into the terminal/upload dialog.
+    // Capture before xterm so a photo's text/HTML fallback cannot become input.
+    window.addEventListener('paste', event => {
+      const terminal = window.term?.element;
+      if (!terminal?.contains(event.target) && !dialog.contains(event.target)) return;
+      const clipboard = event.clipboardData;
+      if (!clipboard) return;
+      let photos = [...clipboard.items].filter(item => item.kind === 'file' && item.type.startsWith('image/'))
+        .map(item => item.getAsFile()).filter(Boolean);
+      if (!photos.length) photos = [...clipboard.files].filter(file => file.type.startsWith('image/'));
+      if (!photos.length) return;
+      event.preventDefault(); event.stopImmediatePropagation();
+      photos = photos.map(file => file.name ? file : new File([file],
+        'pasted-image.' + ({'image/png':'png', 'image/jpeg':'jpg', 'image/webp':'webp', 'image/gif':'gif'}[file.type] || 'img'), {type:file.type}));
+      openDialog(); addFiles(photos);
+    }, true);
     // Capture file drops before ttyd's target handler can send Ctrl+C and `trz`
     // into the foreground program. All files use the separate upload connection.
     const hasFiles = event => event.dataTransfer &&

@@ -281,6 +281,10 @@ inside a Codex/Claude chat composer.
 
 ## Upload documents
 
+Paste a copied photo or screenshot into the terminal with **⌘V** on Mac
+(or your normal paste shortcut). It uploads and inserts the saved image path
+without Enter or clearing your draft. Text-only clipboard content pastes normally.
+
 Click **↑ Upload → Browse** for files or **Choose folder** for a folder.
 Drag files or folders onto the terminal or into the drop area. Use ⌘-click on Mac,
 Ctrl-click on Windows/Linux, or Shift-click for a range in the file picker. All files appear in one persistent list, with queued,
