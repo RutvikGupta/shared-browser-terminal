@@ -40,6 +40,7 @@ t.restart_ttyd(s,c)
  let browser;
  try{
   execFileSync('cc',[path.join(state,'fixture.c'),'-o',path.join(state,'codex')]);
+  fs.copyFileSync(path.join(state,'codex'),path.join(state,'claude'));
   execFileSync(python,['-c',setup,root,state],{env});
   const config=JSON.parse(fs.readFileSync(path.join(state,'settings.json'),'utf8'));
   const login=fs.readFileSync(path.join(state,'login.txt'),'utf8').trim(),colon=login.indexOf(':');
@@ -68,12 +69,12 @@ t.restart_ttyd(s,c)
   await page.evaluate(()=>window.sharedTerminalPrepareInput());
   assert.equal(fs.readFileSync(path.join(state,'input.bin'),'utf8'),'\x1b[1;5F\x1b[1;5F','upload preparation sends no application shortcut');
   await page.evaluate(()=>{window.holdScrollPoll=true;});
-  execFileSync('tmux',['new-window','-t','=bottom-test:','-c',state,path.join(state,'codex')],{env});
+  execFileSync('tmux',['new-window','-t','=bottom-test:','-c',state,path.join(state,'claude')],{env});
   await page.waitForFunction(()=>window.term.buffer.active.getLine(0)?.translateToString().includes('OLD TRANSCRIPT'));
   await page.getByRole('button',{name:'Scroll to bottom',exact:true}).click();
   await page.waitForFunction(()=>window.term.buffer.active.getLine(0)?.translateToString().includes('LATEST TRANSCRIPT'));
   assert.equal(fs.readFileSync(path.join(state,'input.bin'),'utf8'),'\x1b[1;5F\x1b[1;5F\x1b[1;5F');
-  console.log('PASS: first click follows a changed pane even before polling refreshes; upload input preparation sends no shortcut.');
+  console.log('PASS: first click follows a changed pane into Claude Code even before polling refreshes; upload input preparation sends no shortcut.');
   console.log('PASS: bottom button reaches latest output in a mouse-enabled alternate-screen Codex fixture, including from tmux copy mode; only Ctrl+End is sent.');
  }finally{
   if(browser)await browser.close();

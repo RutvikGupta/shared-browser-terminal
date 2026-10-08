@@ -132,12 +132,13 @@ disconnect, but it does not restart the shell, agent, or tunnel. Refresh afterwa
 
 Drag the **right scrollbar** to browse the active pane's tmux history. The
 **bottom-right down-arrow button** returns to live output and restores keyboard
-focus. It exits tmux copy mode and, when foreground Codex owns a mouse-enabled
-full-screen terminal, sends Codex’s Ctrl+End shortcut to reach its latest transcript
+focus. It exits tmux copy mode and, when foreground Codex or Claude Code owns a
+full-screen terminal, sends Ctrl+End to reach its latest transcript
 output. Shells and other programs receive no shortcut. The controls confirm the
 current pane through a separate authenticated connection, including after switching
 windows or splits. Other tmux menus are left alone. Upload path insertion only
-exits tmux history; it does not send the Codex shortcut.
+exits tmux history; it does not send the application shortcut. Mouse capture can
+be disabled; keyboard transcript scrolling still works.
 The scrollbar also supports arrow keys, Page Up/Down, Home, and End when focused.
 
 Mouse mode enables scrollback. If a program consumes mouse events, press Ctrl+B,

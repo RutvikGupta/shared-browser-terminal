@@ -1,4 +1,4 @@
-"""Control the active pane's tmux history and Codex transcript over authenticated ttyd."""
+"""Control the active pane's tmux history and agent transcript over authenticated ttyd."""
 
 import json
 from pathlib import Path
@@ -33,7 +33,7 @@ def control(session, request):
     if request['action'] in ('bottom', 'latest'):
         if state['mode'] == 'copy-mode':
             tmux('send-keys', '-X', '-t', pane, 'cancel')
-        if request['action'] == 'latest' and codex_owns_screen(pane):
+        if request['action'] == 'latest' and agent_owns_screen(pane):
             tmux('send-keys', '-t', pane, 'C-End')
     elif request['action'] != 'selection' or 'position' in request:
         position = request.get('position')
@@ -62,18 +62,19 @@ def control(session, request):
     return state
 
 
-def codex_owns_screen(pane):
+def agent_owns_screen(pane):
+    # Ctrl+End works without mouse capture (including Codex fullscreen defaults).
     # Do not send application keys to shells, editors, or background agents.
-    alternate, mouse, terminal = tmux('display-message', '-p', '-t', pane,
-                                      '#{alternate_on}\t#{mouse_any_flag}\t#{pane_tty}').strip().split('\t')
-    if alternate != '1' or mouse != '1':
+    alternate, terminal = tmux('display-message', '-p', '-t', pane,
+                                      '#{alternate_on}\t#{pane_tty}').strip().split('\t')
+    if alternate != '1':
         return False
     processes = subprocess.check_output(
         ['ps', '-ww', '-t', terminal.removeprefix('/dev/'), '-o', 'pgid=,tpgid=,comm='],
         text=True, stderr=subprocess.DEVNULL, timeout=3)
     for line in processes.splitlines():
         fields = line.split(None, 2)
-        if len(fields) == 3 and fields[0] == fields[1] and Path(fields[2]).name == 'codex':
+        if len(fields) == 3 and fields[0] == fields[1] and Path(fields[2]).name in ('codex', 'claude'):
             return True
     return False
 

@@ -270,6 +270,7 @@ browser in your own test environment, then run:
 ```bash
 node scripts/smoke_test_selection.cjs
 node scripts/smoke_test_bottom.cjs
+node scripts/smoke_test_codex_bottom.cjs
 node scripts/smoke_test_upload.cjs
 ```
 
@@ -283,7 +284,11 @@ failures, cancellation, timeouts, retries, and safe path insertion. It also veri
 that an upload finishes while the UI thread is deliberately blocked. The bottom-button
 test uses an isolated native full-screen fixture to verify Codex’s Ctrl+End
 sequence, tmux copy-mode exit, and a pane switch before polling refreshes. It
-requires a C compiler (`cc`).
+requires a C compiler (`cc`). The separate Codex regression runs the installed CLI
+with synthetic conversation history and an isolated test home, without real
+credentials or model requests. It checks the browser button with mouse capture
+disabled, preserves an unsubmitted draft, and exercises tmux copy mode. Set
+`CODEX_BINARY` if Codex is not on PATH.
 
 For a large-file check through an already running public tunnel (synthetic files
 only, with no terminal input), run:

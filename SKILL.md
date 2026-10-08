@@ -76,7 +76,8 @@ notification is needed. Never announce an unverified URL or send credentials.
   for new panes. The browser does not hide the caret while idle or during
   output; applications retain control of their own cursor visibility.
   The bottom button exits tmux history, then sends Ctrl+End only to a verified
-  foreground Codex process using a mouse-enabled alternate screen. Other programs
+  foreground Codex or Claude Code process using an alternate screen. Mouse capture
+  is not required: Codex can own fullscreen history with it disabled. Other programs
   receive no shortcut. Confirm the current pane and response before returning
   focus; upload path preparation must never send this application shortcut.
 - Copy joins terminal soft wraps. For application word wrapping without wrap
