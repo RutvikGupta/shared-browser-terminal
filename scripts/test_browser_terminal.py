@@ -239,5 +239,142 @@ class DNSVerificationTests(unittest.TestCase):
                     self.assertTrue(conn.close.called)
 
 
+
+class StateMigrationTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        self.old = self.root / 'tmp/terminal'
+        self.new = self.root / 'Application Support/shared-browser-terminal'
+        self.old.mkdir(parents=True)
+        self.stack = ExitStack()
+        self.addCleanup(self.stack.close)
+        self.stack.enter_context(patch.object(terminal, 'LEGACY_STATE', self.old))
+        self.stack.enter_context(patch.object(terminal, 'DEFAULT_STATE', self.new))
+
+    def test_migration_preserves_credentials_locks_and_open_logs(self):
+        terminal.ensure_credentials(self.old)
+        login = terminal.credentials(self.old)
+        (self.old / 'window-requests.json').write_text('{"request":"@7"}')
+        with (self.old / 'ttyd.log').open('a') as log:
+            log.write('before\n'); log.flush()
+            self.assertEqual(terminal.resolve_state(), self.new)
+            log.write('after\n'); log.flush()
+        self.assertTrue(self.old.is_symlink())
+        self.assertEqual(terminal.credentials(self.new), login)
+        self.assertEqual((self.new / 'ttyd.log').read_text(), 'before\nafter\n')
+        self.assertEqual((self.new / 'window-requests.json').read_text(), '{"request":"@7"}')
+        self.assertEqual(self.new.stat().st_mode & 0o777, 0o700)
+        self.assertEqual(terminal.resolve_state(self.old), self.new)
+        with terminal.operation_lock(self.old):
+            with self.assertRaises(RuntimeError):
+                with terminal.operation_lock(self.new):
+                    self.fail('Legacy and durable paths must share one operation lock')
+
+    def test_migration_refuses_active_operation(self):
+        with terminal.operation_lock(self.old):
+            with self.assertRaises(RuntimeError):
+                terminal.resolve_state()
+        self.assertTrue(self.old.is_dir())
+        self.assertFalse(self.new.exists())
+
+    def test_conflicting_state_is_never_overwritten(self):
+        self.new.mkdir(parents=True)
+        (self.new / 'login.txt').write_text('keep this')
+        with self.assertRaisesRegex(RuntimeError, 'Both legacy'):
+            terminal.resolve_state()
+        self.assertEqual((self.new / 'login.txt').read_text(), 'keep this')
+        self.assertFalse(self.old.is_symlink())
+
+    def test_custom_state_does_not_migrate_default(self):
+        custom = self.root / 'custom'
+        self.assertEqual(terminal.resolve_state(custom), custom)
+        self.assertTrue(self.old.is_dir())
+        self.assertFalse(self.new.exists())
+
+    def test_unexpected_legacy_symlink_is_rejected(self):
+        self.old.rmdir()
+        self.old.symlink_to(self.root / 'unrelated')
+        with self.assertRaisesRegex(RuntimeError, 'unexpected'):
+            terminal.resolve_state()
+
+    def test_fresh_default_needs_no_legacy_directory(self):
+        self.old.rmdir()
+        self.assertEqual(terminal.resolve_state(), self.new)
+        self.assertTrue(self.new.is_dir())
+        self.assertFalse(self.old.exists())
+
+
+class TrackingRecoveryTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory(prefix='state with spaces ')
+        self.addCleanup(self.temp.cleanup)
+        self.state = Path(self.temp.name)
+        self.config = {'port': 7682}
+        terminal.ensure_credentials(self.state)
+        self.command = ('/opt/homebrew/bin/ttyd -W -O -a -I ' + str(self.state / 'index.html')
+                        + ' -i 127.0.0.1 -p 7682 -c ' + terminal.credentials(self.state) + ' -t theme truncated')
+        # Only exercise ttyd in tests that do not explicitly remove this record.
+        (self.state / 'tunnel.pid').write_text('456')
+
+    def recover(self, command=None, listeners=None, verify_error=None):
+        with patch.object(terminal, 'listening_pids', side_effect=listeners or [{123}, {123}]), \
+             patch.object(terminal, 'process_command', return_value=command or self.command), \
+             patch.object(terminal, 'verify_http', side_effect=verify_error) as verify:
+            terminal.recover_tracking(self.state, self.config)
+        return verify
+
+    def test_matching_authenticated_server_recovers_without_restart(self):
+        with patch.object(terminal.os, 'kill') as kill:
+            self.assertEqual(self.recover().call_count, 1)
+        kill.assert_not_called()
+        self.assertEqual((self.state / 'ttyd.pid').read_text(), '123')
+        self.assertEqual((self.state / 'ttyd.pid').stat().st_mode & 0o777, 0o600)
+
+    def test_other_page_login_port_and_executable_are_not_adopted(self):
+        for command in [self.command.replace('index.html', 'other.html'),
+                        self.command.replace(terminal.credentials(self.state), 'other:password'),
+                        self.command.replace('7682', '7683'), self.command.replace('/ttyd ', '/bash ')]:
+            with self.subTest(command_kind=command.split()[0]):
+                self.recover(command).assert_not_called()
+                self.assertFalse((self.state / 'ttyd.pid').exists())
+
+    def test_authentication_failure_does_not_record_pid(self):
+        with self.assertRaisesRegex(RuntimeError, 'authentication failed'):
+            self.recover(verify_error=RuntimeError('authentication failed'))
+        self.assertFalse((self.state / 'ttyd.pid').exists())
+
+    def test_listener_change_does_not_record_pid(self):
+        with self.assertRaisesRegex(RuntimeError, 'listener changed'):
+            self.recover(listeners=[{123}, {999}])
+        self.assertFalse((self.state / 'ttyd.pid').exists())
+
+    def test_existing_record_is_not_overwritten(self):
+        (self.state / 'ttyd.pid').write_text('789')
+        with patch.object(terminal, 'listening_pids') as inspect:
+            terminal.recover_tracking(self.state, self.config)
+        inspect.assert_not_called()
+        self.assertEqual((self.state / 'ttyd.pid').read_text(), '789')
+
+    def test_other_users_process_is_not_recognized(self):
+        with patch.object(terminal.subprocess, 'run', return_value=subprocess.CompletedProcess([], 0, f'{os.getuid()+1} {self.command}', '')):
+            self.assertIsNone(terminal.process_command(123))
+
+    def test_tunnel_requires_its_open_log_not_just_the_port(self):
+        (self.state / 'ttyd.pid').write_text('123')
+        (self.state / 'tunnel.pid').unlink()
+        (self.state / 'tunnel.log').write_text('log')
+        command = '/opt/homebrew/bin/cloudflared tunnel --url http://127.0.0.1:7682 --no-autoupdate'
+        for logfile, expected in [(self.state / 'other.log', False), (self.state / 'tunnel.log', True)]:
+            with patch.object(terminal.subprocess, 'check_output', return_value=f'456 {os.getuid()} {command}\n'), \
+                 patch.object(terminal.subprocess, 'run', return_value=subprocess.CompletedProcess([], 0, 'p456\nf1\nn'+str(logfile)+'\n', '')), \
+                 patch.object(terminal, 'process_command', return_value=command):
+                terminal.recover_tracking(self.state, self.config)
+            self.assertEqual((self.state / 'tunnel.pid').exists(), expected)
+        self.assertEqual((self.state / 'tunnel.pid').read_text(), '456')
+        self.assertLess((self.state / 'tunnel.pid').stat().st_mtime, 120)
+
+
 if __name__ == '__main__':
     unittest.main()

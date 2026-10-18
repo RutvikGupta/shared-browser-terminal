@@ -23,14 +23,15 @@ import urllib.error
 import urllib.request
 
 
-DEFAULT_STATE = Path('/private/tmp/codex-browser-remote')
+DEFAULT_STATE = Path.home() / 'Library/Application Support/shared-browser-terminal'
+LEGACY_STATE = Path('/private/tmp/codex-browser-remote')
 # Warp Phenomenon palette: app/src/themes/default_themes.rs (2026-09-22).
 THEME = {'background': '#121212', 'foreground': '#faf9f6', 'cursor': '#3780e9', 'cursorAccent': '#121212', 'selectionBackground': '#2e5d9e', 'black': '#121212', 'red': '#d22d1e', 'green': '#1ca05a', 'yellow': '#e5a01a', 'blue': '#3780e9', 'magenta': '#bf409d', 'cyan': '#799c92', 'white': '#faf9f6', 'brightBlack': '#292929', 'brightRed': '#ae756f', 'brightGreen': '#789b88', 'brightYellow': '#bd9f65', 'brightBlue': '#6f839f', 'brightMagenta': '#a57899', 'brightCyan': '#bfc5c3', 'brightWhite': '#ffffff'}
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--state-dir', type=Path, default=DEFAULT_STATE)
+    parser.add_argument('--state-dir', type=Path)
     sub = parser.add_subparsers(dest='action', required=True)
     sub.add_parser('status')
     sub.add_parser('verify')
@@ -48,7 +49,7 @@ def main():
     sub.add_parser('stop', help='Stop remote access; keep tmux and agents running')
     sub.add_parser('credentials', help='Explicitly display the terminal login')
     args = parser.parse_args()
-    state = args.state_dir
+    state = resolve_state(args.state_dir)
     config = read_config(state)
     if args.action == 'credentials':
         print((state / 'login.txt').read_text().strip())
@@ -63,6 +64,7 @@ def main():
     else:
         prepare_state(state)
         with operation_lock(state):
+            recover_tracking(state, config)
             if args.action == 'stop':
                 # Close browser access even if the tunnel takes time to drain.
                 errors = []
@@ -99,6 +101,32 @@ def main():
                 print(json.dumps(result, indent=2))
                 return 2 if result['readiness'] == 'pending' else 0
     return 0
+
+
+def resolve_state(requested=None):
+    """Move legacy state once, preserving open log handles and the operation lock."""
+    if requested is not None and requested not in (DEFAULT_STATE, LEGACY_STATE):
+        return requested
+    import fcntl
+    DEFAULT_STATE.parent.mkdir(parents=True, exist_ok=True)
+    lock_path = DEFAULT_STATE.parent / '.shared-browser-terminal-migration.lock'
+    with os.fdopen(os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o600), 'r+') as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        if LEGACY_STATE.is_symlink():
+            if LEGACY_STATE.resolve() != DEFAULT_STATE.resolve():
+                raise RuntimeError('Legacy terminal state points to an unexpected directory.')
+        elif LEGACY_STATE.exists():
+            if DEFAULT_STATE.exists():
+                raise RuntimeError('Both legacy and durable terminal state exist; refusing to overwrite either.')
+            with operation_lock(LEGACY_STATE):
+                # rename keeps the open log files and lock inode intact. Do not copy
+                # a running server's logs into a second, diverging state directory.
+                LEGACY_STATE.rename(DEFAULT_STATE)
+                DEFAULT_STATE.chmod(0o700)
+                LEGACY_STATE.symlink_to(DEFAULT_STATE, target_is_directory=True)
+        DEFAULT_STATE.mkdir(mode=0o700, exist_ok=True)
+        DEFAULT_STATE.chmod(0o700)
+    return DEFAULT_STATE
 
 
 @contextmanager
@@ -391,6 +419,94 @@ def owned_process(state, config, kind):
     result = subprocess.run(['ps', '-ww', '-p', str(pid), '-o', 'command='],
                             text=True, capture_output=True)
     return result.returncode == 0 and process_matches(result.stdout.strip(), config, kind)
+
+
+def process_command(pid):
+    result = subprocess.run(['ps', '-ww', '-p', str(pid), '-o', 'uid=,command='],
+                            text=True, capture_output=True)
+    fields = result.stdout.strip().split(None, 1)
+    if result.returncode or len(fields) != 2 or fields[0] != str(os.getuid()):
+        return None
+    return fields[1]
+
+
+def listening_pids(port):
+    result = subprocess.run(['lsof', '-nP', '-a', '-u', str(os.getuid()),
+                             '-iTCP:' + str(port), '-sTCP:LISTEN', '-t'],
+                            text=True, capture_output=True)
+    if result.returncode not in (0, 1):
+        raise RuntimeError('Could not inspect the terminal listener.')
+    return {int(value) for value in result.stdout.split() if value.isdigit()}
+
+
+def ttyd_matches_state(command, state, config):
+    if not command or not process_matches(command, config, 'ttyd'):
+        return False
+    # ps prints ttyd's mutated argv without shell quoting. Match complete option
+    # values directly so Application Support's space does not split the path.
+    pages = [state / 'index.html']
+    if state.resolve() == DEFAULT_STATE.resolve() and LEGACY_STATE.is_symlink() and LEGACY_STATE.resolve() == state.resolve():
+        pages.append(LEGACY_STATE / 'index.html')
+    return (any(' -I ' + str(page) + ' ' in command for page in pages)
+            and ' -c ' + credentials(state) + ' ' in command)
+
+
+def tunnel_matches_state(pid, command, state, config):
+    if not command or not process_matches(command, config, 'tunnel'):
+        return False
+    result = subprocess.run(['lsof', '-a', '-p', str(pid), '-d', '1,2', '-Fn'],
+                            capture_output=True, text=True)
+    if result.returncode:
+        return False
+    expected = state / 'tunnel.log'
+    for line in result.stdout.splitlines():
+        if line.startswith('n'):
+            try:
+                if Path(line[1:]).samefile(expected):
+                    return True
+            except OSError:
+                pass
+    return False
+
+
+def recover_tracking(state, config):
+    """Recover only missing records, under operation_lock; never replace a live PID."""
+    for kind in ('ttyd', 'tunnel'):
+        path = state / (kind + '.pid')
+        if path.exists():
+            continue
+        if kind == 'ttyd':
+            candidates = listening_pids(config['port'])
+            matches = [(pid, process_command(pid)) for pid in candidates]
+            matches = [(pid, cmd) for pid, cmd in matches if ttyd_matches_state(cmd, state, config)]
+        else:
+            processes = subprocess.check_output(['ps', '-ww', '-axo', 'pid=,uid=,command='], text=True)
+            matches = []
+            for line in processes.splitlines():
+                fields = line.split(None, 2)
+                if len(fields) != 3 or fields[1] != str(os.getuid()):
+                    continue
+                pid, cmd = int(fields[0]), fields[2]
+                if tunnel_matches_state(pid, cmd, state, config):
+                    matches.append((pid, cmd))
+        if len(matches) > 1:
+            raise RuntimeError('Multiple matching ' + kind + ' processes; refusing ambiguous recovery.')
+        if not matches:
+            continue
+        pid, command = matches[0]
+        if kind == 'ttyd':
+            verify_http(state, config, quiet=True, timeout=2)
+            if listening_pids(config['port']) != {pid}:
+                raise RuntimeError('Terminal listener changed during recovery.')
+        if process_command(pid) != command:
+            raise RuntimeError('Terminal process changed during recovery.')
+        with os.fdopen(os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), 'w') as file:
+            file.write(str(pid))
+        if kind == 'tunnel':
+            # A recovered process is not a freshly launched tunnel. Permit the
+            # usual bounded repair if the saved URL has stopped working.
+            os.utime(path, (1, 1))
+        print('Recovered ' + kind + ' tracking from a verified running process.', file=sys.stderr)
 
 
 def stop_process(state, config, kind):

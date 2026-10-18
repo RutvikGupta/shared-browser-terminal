@@ -59,7 +59,19 @@ server if it hosts unrelated work.
 
 ## Runtime files and credentials
 
-Default runtime directory: `/private/tmp/codex-browser-remote/`.
+Default runtime directory: `~/Library/Application Support/shared-browser-terminal/`.
+
+On first use, the helper moves the old `/private/tmp/codex-browser-remote/`
+directory here and leaves a compatibility symlink. It preserves credentials, the
+URL, request IDs, and open logs without restarting the shell or tunnel. If both
+locations already contain separate state, it stops instead of overwriting either.
+Explicit custom state directories remain unchanged.
+
+Before startup, styling, or shutdown, missing PID files can be recovered from
+verified running processes. For ttyd, recovery requires the same user, loopback
+port, page path, credentials, and successful authentication checks. For the tunnel,
+it requires the same user, endpoint, and an open handle to this state’s tunnel log.
+Ambiguous matches are rejected; existing PID records are not overwritten.
 
 | File | Purpose |
 | --- | --- |
@@ -75,8 +87,8 @@ Default runtime directory: `/private/tmp/codex-browser-remote/`.
 
 The username defaults to the hosting Mac's username. The password is generated
 randomly once and reused. These files are outside the source tree and must never
-be committed, posted in an issue, or copied into a guide. Temporary state can be
-removed by OS cleanup or reboot; tmux itself does not survive a reboot.
+be committed, posted in an issue, or copied into a guide. State persists across temporary-file cleanup and reboot; running tmux processes
+still do not survive a reboot.
 
 The browser uses HTTP Basic Auth. It may remember authentication internally;
 credentials are not stored by this application in cookies, local storage, or
@@ -89,7 +101,7 @@ the managed credential file, and restart:
 
 ```bash
 python3 scripts/browser_terminal.py stop
-rm /private/tmp/codex-browser-remote/login.txt
+rm "$HOME/Library/Application Support/shared-browser-terminal/login.txt"
 python3 scripts/browser_terminal.py open
 python3 scripts/browser_terminal.py credentials
 ```

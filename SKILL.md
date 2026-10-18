@@ -56,6 +56,13 @@ Read the JSON result:
   Authentication or certificate failures are fatal; do not weaken checks or
   repeatedly restart the tunnel to hide them.
 
+Existing state in `/private/tmp/codex-browser-remote/` migrates automatically to
+Application Support, preserving the login, URL, and tmux windows. The old path
+becomes a compatibility symlink. Use the returned `credentials_file` for notifications
+instead of hardcoding a temporary path. Missing process records are recovered only
+after checking process ownership, server authentication, and state-specific paths.
+Do not manually adopt an unknown port listener or overwrite conflicting state.
+
 No extra publication confirmation is needed when the user requested browser
 access. The helper binds authenticated ttyd to `127.0.0.1:7682`, verifies local
 authentication before publication, and manages only recorded processes. Never
@@ -185,7 +192,7 @@ python3 ~/.codex/skills/shared-browser-terminal/scripts/browser_terminal.py cred
 `style` briefly reconnects browsers while preserving shells and the tunnel URL.
 `credentials` displays the login: run it only when the user requests credentials.
 Normally return the local file path, not the password. Runtime files and history
-must remain outside Git. Default state: `/private/tmp/codex-browser-remote/`.
+must remain outside Git. Default state: `~/Library/Application Support/shared-browser-terminal/`.
 
 `status` is diagnostic and explicitly says `not_checked`; it does not certify
 public access. `verify` is for targeted troubleshooting. See the

@@ -314,6 +314,22 @@ isolated session named `sbt-resume-validation…`. Set `PLAYWRIGHT_MODULE` if Pl
 outside the repository. `LARGE_UPLOAD_TEST=1` also enables large files in the
 local `scripts/smoke_test_upload.cjs` suite.
 
+Runtime state is stored outside the repository in
+`~/Library/Application Support/shared-browser-terminal/`. Existing temporary state
+is migrated automatically, and missing process tracking can be recovered without
+restarting verified servers. See [runtime files](docs/usage.md#runtime-files-and-credentials).
+
+To exercise migration and missing tracking against isolated live servers:
+
+```bash
+python3 scripts/smoke_test_state.py --publish
+```
+
+This starts a temporary authenticated ttyd server and Cloudflare tunnel, preserves
+their processes while moving state, removes and recovers both PID files, and
+checks paths containing spaces. Test servers are stopped afterward. Omit
+`--publish` for a loopback-only check.
+
 Personal follow-up preferences can live in a gitignored `LOCAL.md` beside
 `SKILL.md`. Agents read it after browser access is verified; preserve this file
 when updating your installation.
