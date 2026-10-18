@@ -112,9 +112,14 @@ that directory consistently in every command and remove its login file instead.
 
 ## Custom state or additional terminals
 
+Independent terminals have different URLs, credentials, and background tmux
+sessions. Opening or switching one does not change the other. `--new-window`
+only adds a window to a shared session and cannot provide this separation.
+
 Put `--state-dir PATH` **before** the subcommand. The directory is created with
 mode `0700`. A separate state directory alone does not allocate a different port
-or tmux session. Set unique values before starting a second terminal:
+or tmux session. Choose an unused port and a new session name before starting
+a second terminal; the values below are examples, not slots to overwrite:
 
 ```bash
 mkdir -m 700 "$HOME/.local/state/browser-terminal-second"

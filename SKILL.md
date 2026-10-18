@@ -23,8 +23,19 @@ status command first. Respect actual tool approval decisions.
 python3 ~/.codex/skills/shared-browser-terminal/scripts/browser_terminal.py open --cwd /absolute/project/path
 ```
 
-For **"new remote terminal"** or **"new shell"**, add `--new-window` and a unique
-request ID. Reuse that ID if this same request needs a retry:
+For **"another remote terminal"**, **"new remote terminal"**, or **"spin up a new
+one"**, create an independent instance: a unique state directory, tmux session,
+unused loopback port, ttyd server, and tunnel URL. Follow
+[additional terminals](docs/usage.md#custom-state-or-additional-terminals), using a
+new directory under `~/Library/Application Support/shared-browser-terminal/terminals/`.
+Reuse that directory on retries. Preserve existing instances and send the new
+instance’s verified URL and returned credentials location. A new tmux window in
+the existing session does **not** satisfy this request: connected tabs share the
+same selected window. Preparing the separate settings is required before `open`;
+the normal-startup shortcut below applies after that preparation.
+
+Only when the user explicitly wants **another window in the same terminal**, add
+`--new-window` and a unique request ID. Reuse that ID on retries:
 
 ```bash
 python3 ~/.codex/skills/shared-browser-terminal/scripts/browser_terminal.py open --cwd /absolute/project/path --new-window --request-id REQUEST_ID
