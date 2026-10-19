@@ -271,6 +271,7 @@ browser in your own test environment, then run:
 node scripts/smoke_test_selection.cjs
 node scripts/smoke_test_bottom.cjs
 node scripts/smoke_test_codex_bottom.cjs
+node scripts/smoke_test_codex_bottom.cjs --selection
 node scripts/smoke_test_upload.cjs
 ```
 
@@ -287,7 +288,10 @@ sequence, tmux copy-mode exit, and a pane switch before polling refreshes. It
 requires a C compiler (`cc`). The separate Codex regression runs the installed CLI
 with synthetic conversation history and an isolated test home, without real
 credentials or model requests. It checks the browser button with mouse capture
-disabled, preserves an unsubmitted draft, and exercises tmux copy mode. Set
+disabled, preserves an unsubmitted draft, and exercises tmux copy mode. With
+`--selection`, it uses the normal terminal theme and checks drag scrolling from
+the first/last text row, continuous multi-screen copy in both directions, release
+behavior, and preservation of the clipboard and draft. Set
 `CODEX_BINARY` if Codex is not on PATH.
 
 For a large-file check through an already running public tunnel (synthetic files

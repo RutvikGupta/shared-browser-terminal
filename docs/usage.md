@@ -181,8 +181,8 @@ previous redraw-hiding workaround.
 
 ## Highlight and copy
 
-Hold the mouse button while selecting and move to the bottom edge to scroll down,
-or the top edge to scroll up. Keep holding to extend the selection beyond the
+Hold the mouse button while selecting and drag down into the last text row to
+scroll down, or up into the first row to scroll up. Keep holding to extend the selection beyond the
 visible screen; release to stop. This works with tmux history and mouse-enabled
 full-screen applications such as Codex. If the pane changes or a redraw cannot be
 matched safely, scrolling stops and retains the last confirmed selection.

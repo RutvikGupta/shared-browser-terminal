@@ -104,7 +104,10 @@ notification is needed. Never announce an unverified URL or send credentials.
   quoted multiline text, and explicit backslash continuations. This recovery is
   conservative; do not strip all newlines or infer arbitrary prose wrapping.
   Clamp copied rows to the current terminal width after a resize.
-- Holding a drag at the top/bottom edge scrolls and extends the selection.
+- Dragging vertically into the first/last text row scrolls and extends the
+  selection. Horizontal selection within that row must not start scrolling.
+  Send separate wheel notches to mouse-enabled apps: increasing a synthetic
+  wheel event’s pixel distance still produces only one notch in xterm.
   Stop on release, lost pointer capture, blur, resize, or hidden page. Keep one
   scroll request in flight; preserve the last confirmed selection on failure.
   Use tmux history controls for shells and wheel reports for mouse-enabled
@@ -112,7 +115,9 @@ notification is needed. Never announce an unverified URL or send credentials.
   inject keyboard commands. Capture bounded viewport text through the authenticated
   control channel, preserving Unicode cell widths and soft wraps. For app-owned
   scrolling, require unambiguous overlapping rows and exclude fixed draft/footer
-  rows; stop if output changes cannot be matched safely.
+  rows; stop if output changes cannot be matched safely. Validate changes with
+  `scripts/smoke_test_codex_bottom.cjs --selection` against the installed Codex CLI,
+  as well as the generic selection fixture.
 - Drag to highlight text, double-click a word, or triple-click a whole line
   (including soft wraps). **Shift-click** extends from the original click or drag
   anchor to the clicked position, including across lines. Highlighting preserves the clipboard. **⌘C** copies

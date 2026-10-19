@@ -242,7 +242,9 @@
   function edgeDirection(gesture) {
     if (!gesture.pointer) return 0;
     const rect = gesture.screen.getBoundingClientRect();
-    const margin = Math.min(4, rect.height / gesture.term.rows / 3);
+    // Start in the first/last text row, not an almost invisible pixel strip.
+    const margin = rect.height / gesture.term.rows;
+    if (!gesture.history && Math.abs(gesture.pointer.clientY - gesture.startY) < margin / 2) return 0;
     return gesture.pointer.clientY >= rect.bottom - margin ? 1 :
       gesture.pointer.clientY <= rect.top + margin ? -1 : 0;
   }
@@ -300,9 +302,13 @@
     if (!current.selection.application || current.selection.width !== history.cols || current.height !== term.rows) throw new Error('Application changed.');
     // Deliver the same wheel gesture as a user scrolling a mouse-enabled app.
     // Never synthesize keyboard shortcuts, Enter, Escape, or interrupt signals.
-    screen.dispatchEvent(new WheelEvent('wheel', {bubbles:true, cancelable:true,
-      clientX:rect.left+rect.width/2, clientY:rect.top+rect.height/2,
-      deltaY:direction*3*rect.height/term.rows, deltaMode:0}));
+    // Mouse reporting encodes wheel notches, not pixel distance. One large
+    // delta still produces one notch in xterm and barely moves Codex.
+    for (let step = 0; step < 3; step++) {
+      screen.dispatchEvent(new WheelEvent('wheel', {bubbles:true, cancelable:true,
+        clientX:rect.left+rect.width/2, clientY:rect.top+rect.height/2,
+        deltaY:direction*rect.height/term.rows, deltaMode:0}));
+    }
     for (let attempt = 0; attempt < 3 && drag === gesture; attempt++) {
       await new Promise(resolve => setTimeout(resolve, 120));
       if (drag !== gesture) return;
@@ -412,7 +418,7 @@
     const anchor = extend ? previous.position : cell(term, screen, event);
     if (!extend) updateSelection(() => term.clearSelection());
     rememberAnchor(term, anchor);
-    drag = {term, screen, anchor};
+    drag = {term, screen, anchor, startY:event.clientY};
     if (extend) selectTo(event);
   }, true);
   document.addEventListener('mousemove', event => {
