@@ -111,13 +111,15 @@ notification is needed. Never announce an unverified URL or send credentials.
   Stop on release, lost pointer capture, blur, resize, or hidden page. Keep one
   scroll request in flight; preserve the last confirmed selection on failure.
   Use tmux history controls for shells and wheel reports for mouse-enabled
-  alternate-screen apps such as Codex. Confirm the pane before scrolling; never
+  alternate-screen apps such as Codex and Claude Code. Confirm the pane before scrolling; never
   inject keyboard commands. Capture bounded viewport text through the authenticated
   control channel, preserving Unicode cell widths and soft wraps. For app-owned
   scrolling, require unambiguous overlapping rows and exclude fixed draft/footer
   rows; stop if output changes cannot be matched safely. Validate changes with
-  `scripts/smoke_test_codex_bottom.cjs --selection` against the installed Codex CLI,
-  as well as the generic selection fixture.
+  `scripts/smoke_test_codex_bottom.cjs --selection` and
+  `scripts/smoke_test_claude_selection.cjs` against the installed CLIs, as well as
+  the generic selection fixture. Claude’s footer hints can rotate while idle;
+  compare transcript rows when checking that release stops scrolling.
 - Drag to highlight text, double-click a word, or triple-click a whole line
   (including soft wraps). **Shift-click** extends from the original click or drag
   anchor to the clicked position, including across lines. Highlighting preserves the clipboard. **⌘C** copies

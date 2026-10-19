@@ -272,6 +272,7 @@ node scripts/smoke_test_selection.cjs
 node scripts/smoke_test_bottom.cjs
 node scripts/smoke_test_codex_bottom.cjs
 node scripts/smoke_test_codex_bottom.cjs --selection
+node scripts/smoke_test_claude_selection.cjs
 node scripts/smoke_test_upload.cjs
 ```
 
@@ -292,7 +293,11 @@ disabled, preserves an unsubmitted draft, and exercises tmux copy mode. With
 `--selection`, it uses the normal terminal theme and checks drag scrolling from
 the first/last text row, continuous multi-screen copy in both directions, release
 behavior, and preservation of the clipboard and draft. Set
-`CODEX_BINARY` if Codex is not on PATH.
+`CODEX_BINARY` if Codex is not on PATH. The Claude regression uses the installed
+CLI with synthetic history, an isolated configuration directory, `--bare`, and
+a dummy local API endpoint. It checks the same drag/copy behavior, including
+Claude’s rotating footer hints, without using real credentials or model calls.
+Set `CLAUDE_BINARY` if Claude is not on PATH.
 
 For a large-file check through an already running public tunnel (synthetic files
 only, with no terminal input), run:
